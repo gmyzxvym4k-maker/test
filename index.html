@@ -9,6 +9,22 @@
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/docx@7.8.2/build/index.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        // 等待 DOM 加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化全局命名空间，确保库可用
+            window.PizZip = window.PizZip || PizZip;
+            // docx 库导出为 globalThis.docx
+            window.docxLib = window.docx || {};
+            
+            console.log('库加载状态:', { 
+                PizZip: !!window.PizZip, 
+                docx: !!window.docxLib,
+                saveAs: typeof saveAs !== 'undefined',
+                docxKeys: window.docxLib ? Object.keys(window.docxLib).slice(0, 10) : null
+            });
+        });
+    </script>
     <style>
         :root {
             --primary-color: #2563eb;
@@ -651,19 +667,31 @@
         // ==================== OOXML 解析引擎 ====================
         async function parseDocxToHtml(arrayBuffer) {
             try {
-                const zip = new PizZip(arrayBuffer);
+                // 确保 PizZip 可用
+                const ZipLib = window.PizZip || PizZip;
+                if (!ZipLib) {
+                    throw new Error('PizZip 库未加载，请检查网络连接');
+                }
+                
+                const zip = new ZipLib(arrayBuffer);
                 const docXml = zip.file("word/document.xml")?.asText();
                 const stylesXml = zip.file("word/styles.xml")?.asText();
                 
                 if (!docXml) {
-                    throw new Error('无法找到 document.xml');
+                    throw new Error('无法找到 document.xml，文件可能已损坏');
                 }
 
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(docXml, 'application/xml');
                 
+                // 检查解析错误
+                const parseError = doc.querySelector('parsererror');
+                if (parseError) {
+                    console.warn('XML 解析警告:', parseError.textContent);
+                }
+                
                 let html = '';
-                const body = doc.querySelector('w:body');
+                const body = doc.querySelector('w\\:body, w-body, body');
                 
                 if (body) {
                     html = parseBody(body);
@@ -683,11 +711,12 @@
             const children = body.children;
             
             for (let child of children) {
-                const tagName = child.tagName.replace('w:', '');
+                // 处理带命名空间和不带命名空间的标签
+                const tagName = child.tagName.replace(/^w:/, '').replace(/:/g, '-');
                 
-                if (tagName === 'p') {
+                if (tagName === 'p' || tagName === 'w-p') {
                     html += parseParagraph(child);
-                } else if (tagName === 'tbl') {
+                } else if (tagName === 'tbl' || tagName === 'w-tbl') {
                     html += parseTable(child);
                 }
             }
@@ -696,11 +725,13 @@
         }
 
         function parseParagraph(p) {
-            const pPr = p.querySelector('w:pPr');
-            const pStyle = pPr?.querySelector('w:pStyle')?.getAttribute('w:val');
+            // 使用更通用的选择器
+            const pPr = p.querySelector('w\\:pPr, w-pPr, pPr');
+            const pStyle = pPr?.querySelector('w\\:pStyle, w-pStyle, pStyle')?.getAttribute('w\\:val') || 
+                          pPr?.querySelector('w\\:pStyle, w-pStyle, pStyle')?.getAttribute('val');
             
             let content = '';
-            const runs = p.querySelectorAll('w:r');
+            const runs = p.querySelectorAll('w\\:r, w-r, r');
             
             for (let run of runs) {
                 content += parseRun(run);
@@ -721,8 +752,9 @@
         }
 
         function parseRun(run) {
-            const rPr = run.querySelector('w:rPr');
-            const text = run.querySelector('w:t')?.textContent || '';
+            const rPr = run.querySelector('w\\:rPr, w-rPr, rPr');
+            const textEl = run.querySelector('w\\:t, w-t, t');
+            const text = textEl?.textContent || '';
             
             if (!text) return '';
             
@@ -732,56 +764,61 @@
             // 解析运行属性
             if (rPr) {
                 // 加粗
-                if (rPr.querySelector('w:b') || rPr.querySelector('w:bCs')) {
+                if (rPr.querySelector('w\\:b, w-b, b') || rPr.querySelector('w\\:bCs, w-bCs, bCs')) {
                     style += 'font-weight: bold;';
                 }
                 
                 // 斜体
-                if (rPr.querySelector('w:i') || rPr.querySelector('w:iCs')) {
+                if (rPr.querySelector('w\\:i, w-i, i') || rPr.querySelector('w\\:iCs, w-iCs, iCs')) {
                     style += 'font-style: italic;';
                 }
                 
                 // 下划线
-                if (rPr.querySelector('w:u')) {
+                if (rPr.querySelector('w\\:u, w-u, u')) {
                     style += 'text-decoration: underline;';
                 }
                 
                 // 删除线
-                if (rPr.querySelector('w:strike') || rPr.querySelector('w:dstrike')) {
+                if (rPr.querySelector('w\\:strike, w-strike, strike') || rPr.querySelector('w\\:dstrike, w-dstrike, dstrike')) {
                     style += 'text-decoration: line-through;';
                 }
                 
                 // 字体颜色
-                const color = rPr.querySelector('w:color')?.getAttribute('w:val');
+                const colorEl = rPr.querySelector('w\\:color, w-color, color');
+                const color = colorEl?.getAttribute('w\\:val') || colorEl?.getAttribute('val');
                 if (color) {
                     style += `color: #${color};`;
                 }
                 
                 // 字号
-                const sz = rPr.querySelector('w:sz')?.getAttribute('w:val');
+                const szEl = rPr.querySelector('w\\:sz, w-sz, sz');
+                const sz = szEl?.getAttribute('w\\:val') || szEl?.getAttribute('val');
                 if (sz) {
                     const pt = parseInt(sz) / 2;
                     style += `font-size: ${pt}pt;`;
                 }
                 
                 // 高亮
-                const highlight = rPr.querySelector('w:highlight')?.getAttribute('w:val');
+                const highlightEl = rPr.querySelector('w\\:highlight, w-highlight, highlight');
+                const highlight = highlightEl?.getAttribute('w\\:val') || highlightEl?.getAttribute('val');
                 if (highlight && highlight !== 'none') {
                     classes.push('highlight-' + highlight);
                 }
                 
                 // 上标/下标
-                if (rPr.querySelector('w:vertAlign')?.getAttribute('w:val') === 'superscript') {
+                const vertAlignEl = rPr.querySelector('w\\:vertAlign, w-vertAlign, vertAlign');
+                const vertAlign = vertAlignEl?.getAttribute('w\\:val') || vertAlignEl?.getAttribute('val');
+                if (vertAlign === 'superscript') {
                     style += 'vertical-align: super; font-size: smaller;';
-                } else if (rPr.querySelector('w:vertAlign')?.getAttribute('w:val') === 'subscript') {
+                } else if (vertAlign === 'subscript') {
                     style += 'vertical-align: sub; font-size: smaller;';
                 }
                 
                 // 修订标记
-                if (run.querySelector('w:ins')) {
+                if (run.querySelector('w\\:ins, w-ins, ins')) {
                     classes.push('highlight-insert');
                 }
-                if (run.querySelector('w:del')) {
+                if (run.querySelector('w\\:del, w-del, del')) {
                     classes.push('highlight-delete');
                 }
             }
@@ -794,14 +831,14 @@
 
         function parseTable(tbl) {
             let html = '<table style="border-collapse: collapse; width: 100%;">';
-            const rows = tbl.querySelectorAll('w:tr');
+            const rows = tbl.querySelectorAll('w\\:tr, w-tr, tr');
             
             for (let row of rows) {
                 html += '<tr>';
-                const cells = row.querySelectorAll('w:tc');
+                const cells = row.querySelectorAll('w\\:tc, w-tc, tc');
                 
                 for (let cell of cells) {
-                    const ps = cell.querySelectorAll('w:p');
+                    const ps = cell.querySelectorAll('w\\:p, w-p, p');
                     let cellContent = '';
                     
                     for (let p of ps) {
@@ -1191,7 +1228,14 @@ ${editor.innerHTML}
 
         async function downloadWord() {
             try {
-                const { Document, Packer, Paragraph, TextRun } = docx;
+                // 确保 docx 对象可用
+                const docxLib = window.docx || window.docxLib;
+                if (!docxLib || !docxLib.Document) {
+                    console.error('docx 库对象:', docxLib);
+                    throw new Error('docx 库未正确加载，请检查网络连接或 CDN 可用性');
+                }
+                
+                const { Document, Packer, Paragraph, TextRun } = docxLib;
                 
                 const children = [];
                 const nodes = editor.childNodes;
@@ -1204,6 +1248,11 @@ ${editor.innerHTML}
                         }
                     }
                 });
+                
+                if (children.length === 0) {
+                    showToast('文档内容为空，无法导出', 'warning');
+                    return;
+                }
                 
                 const doc = new Document({
                     sections: [{
