@@ -1,30 +1,2274 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Word Editor</title>
+    <title>Word 文档与 AI 协作平台</title>
+    
+    <!-- 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- 依赖库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pizzip/3.1.4/pizzip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.8.2/docx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xmldom/0.6.0/dom-parser.min.js"></script>
+    
     <style>
-        body { font-family: Arial, sans-serif; } 
-        .editor { border: 1px solid #ccc; padding: 10px; }
-        .comment { color: blue; cursor: pointer; }
+        :root {
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --bg-color: #f8fafc;
+            --surface-color: #ffffff;
+            --border-color: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 16px;
+            --spacing-lg: 24px;
+            --spacing-xl: 32px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 工具栏 */
+        .toolbar {
+            background: var(--surface-color);
+            border-bottom: 1px solid var(--border-color);
+            padding: var(--spacing-sm) var(--spacing-md);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            flex-wrap: wrap;
+            box-shadow: var(--shadow-sm);
+            z-index: 100;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+            padding-right: var(--spacing-md);
+            border-right: 1px solid var(--border-color);
+        }
+
+        .toolbar-group:last-child {
+            border-right: none;
+        }
+
+        .btn {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border: 1px solid var(--border-color);
+            background: var(--surface-color);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn:hover {
+            background: var(--bg-color);
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .select-input {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            background: var(--surface-color);
+            cursor: pointer;
+        }
+
+        .color-picker {
+            width: 32px;
+            height: 32px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            padding: 2px;
+        }
+
+        /* 主容器 */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 左侧编辑器区域 */
+        .editor-panel {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+            background: var(--bg-color);
+            position: relative;
+        }
+
+        .editor-scroll-container {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            padding: var(--spacing-xl);
+        }
+
+        .word-page {
+            background: white;
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            padding: 25mm;
+            box-shadow: var(--shadow-md);
+            position: relative;
+        }
+
+        .editor-content {
+            outline: none;
+            min-height: 100%;
+            font-size: 12pt;
+            line-height: 1.6;
+        }
+
+        .editor-content h1 { font-size: 24pt; font-weight: bold; margin-bottom: 12pt; }
+        .editor-content h2 { font-size: 18pt; font-weight: bold; margin-bottom: 10pt; }
+        .editor-content h3 { font-size: 14pt; font-weight: bold; margin-bottom: 8pt; }
+        .editor-content h4 { font-size: 12pt; font-weight: bold; margin-bottom: 6pt; }
+        .editor-content h5 { font-size: 11pt; font-weight: bold; margin-bottom: 6pt; }
+        .editor-content h6 { font-size: 10pt; font-weight: bold; margin-bottom: 6pt; }
+        
+        .editor-content p { margin-bottom: 8pt; }
+        
+        .editor-content ul, .editor-content ol {
+            margin-left: 24pt;
+            margin-bottom: 8pt;
+        }
+
+        .editor-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 8pt 0;
+        }
+
+        .editor-content td, .editor-content th {
+            border: 1px solid #000;
+            padding: 4pt 8pt;
+        }
+
+        .editor-content img {
+            max-width: 100%;
+            height: auto;
+            margin: 8pt 0;
+        }
+
+        /* 修订标记样式 */
+        .revision-insert {
+            background-color: #d1fae5;
+            text-decoration: underline;
+        }
+
+        .revision-delete {
+            background-color: #fee2e2;
+            text-decoration: line-through;
+            color: var(--danger-color);
+        }
+
+        /* 高亮样式 */
+        .highlight-yellow { background-color: #fef08a; }
+        .highlight-green { background-color: #bbf7d0; }
+        .highlight-blue { background-color: #bfdbfe; }
+        .highlight-red { background-color: #fecaca; }
+
+        /* 批注轨道 */
+        .comments-rail {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 280px;
+            background: rgba(255, 255, 255, 0.95);
+            border-left: 1px solid var(--border-color);
+            overflow-y: auto;
+            padding: var(--spacing-md);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .comments-rail.visible {
+            transform: translateX(0);
+        }
+
+        .comment-card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            box-shadow: var(--shadow-sm);
+            position: relative;
+            cursor: move;
+        }
+
+        .comment-card:hover {
+            box-shadow: var(--shadow-md);
+        }
+
+        .comment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .comment-type {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+        }
+
+        .comment-type.issue { background: #fee2e2; color: #dc2626; }
+        .comment-type.suggestion { background: #dbeafe; color: #2563eb; }
+        .comment-type.note { background: #fef3c7; color: #d97706; }
+        .comment-type.general { background: #e0e7ff; color: #4f46e5; }
+
+        .comment-delete {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 2px;
+        }
+
+        .comment-delete:hover {
+            color: var(--danger-color);
+        }
+
+        .comment-quote {
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: var(--bg-color);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            margin-bottom: var(--spacing-sm);
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .comment-content {
+            font-size: 13px;
+            line-height: 1.5;
+            outline: none;
+            min-height: 40px;
+        }
+
+        .comment-suggestion {
+            font-size: 12px;
+            color: var(--success-color);
+            background: #ecfdf5;
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            margin-top: var(--spacing-sm);
+        }
+
+        /* SVG 连线层 */
+        .svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .comment-line {
+            stroke: var(--primary-color);
+            stroke-width: 1.5;
+            stroke-dasharray: 6, 4;
+            fill: none;
+            opacity: 0.6;
+        }
+
+        /* 右侧 AI 对话区域 */
+        .ai-panel {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface-color);
+        }
+
+        .ai-header {
+            padding: var(--spacing-md);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ai-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .ai-status {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status-dot.connected {
+            background: var(--success-color);
+        }
+
+        .ai-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--spacing-md);
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+        }
+
+        .message {
+            max-width: 85%;
+            padding: var(--spacing-md);
+            border-radius: var(--radius-lg);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--primary-color);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.ai {
+            align-self: flex-start;
+            background: var(--bg-color);
+            color: var(--text-primary);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-summary {
+            font-weight: 600;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .message-issues {
+            list-style: none;
+        }
+
+        .message-issues li {
+            padding: var(--spacing-xs) 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .message-issues li:last-child {
+            border-bottom: none;
+        }
+
+        .quick-actions {
+            padding: var(--spacing-md);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: var(--spacing-sm);
+            flex-wrap: wrap;
+        }
+
+        .quick-action-btn {
+            flex: 1;
+            min-width: 100px;
+            padding: var(--spacing-sm) var(--spacing-md);
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-action-btn:hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .ai-input-area {
+            padding: var(--spacing-md);
+            border-top: 1px solid var(--border-color);
+        }
+
+        .ai-input-wrapper {
+            display: flex;
+            gap: var(--spacing-sm);
+            align-items: flex-end;
+        }
+
+        .ai-textarea {
+            flex: 1;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            resize: none;
+            min-height: 48px;
+            max-height: 120px;
+            font-family: inherit;
+            outline: none;
+        }
+
+        .ai-textarea:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .send-btn {
+            padding: var(--spacing-sm) var(--spacing-lg);
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .send-btn:hover {
+            background: var(--primary-hover);
+        }
+
+        .send-btn:disabled {
+            background: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        /* 状态栏 */
+        .status-bar {
+            background: var(--surface-color);
+            border-top: 1px solid var(--border-color);
+            padding: var(--spacing-xs) var(--spacing-md);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-left, .status-right {
+            display: flex;
+            gap: var(--spacing-lg);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+        }
+
+        /* 模态框 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .modal-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--surface-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow: auto;
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .modal-overlay.visible .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            padding: var(--spacing-lg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .modal-body {
+            padding: var(--spacing-lg);
+        }
+
+        .modal-footer {
+            padding: var(--spacing-md) var(--spacing-lg);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--spacing-sm);
+        }
+
+        .form-group {
+            margin-bottom: var(--spacing-md);
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: var(--spacing-xs);
+            color: var(--text-primary);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+        }
+
+        .form-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-xl);
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .drop-zone.dragover {
+            border-color: var(--primary-color);
+            background: rgba(37, 99, 235, 0.05);
+        }
+
+        .drop-zone-icon {
+            font-size: 48px;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .drop-zone-text {
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .drop-zone-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Toast 通知 */
+        .toast-container {
+            position: fixed;
+            bottom: 80px;
+            right: var(--spacing-lg);
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .toast {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md) var(--spacing-lg);
+            box-shadow: var(--shadow-lg);
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success { border-left: 4px solid var(--success-color); }
+        .toast.error { border-left: 4px solid var(--danger-color); }
+        .toast.warning { border-left: 4px solid var(--warning-color); }
+        .toast.info { border-left: 4px solid var(--primary-color); }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* 隐藏元素 */
+        .hidden {
+            display: none !important;
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--text-muted);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        /* 选中文本高亮 */
+        ::selection {
+            background: rgba(37, 99, 235, 0.2);
+        }
     </style>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
-    <h1>AI Word Document & Collaboration Platform</h1>
-    <div class="editor" contenteditable="true">
-        <p>欢迎使用AI文档编辑器！</p>
+    <!-- 工具栏 -->
+    <div class="toolbar">
+        <div class="toolbar-group">
+            <button class="btn" id="btn-import" title="导入 Word 文档">📁 导入</button>
+            <button class="btn btn-primary" id="btn-export-word" title="导出为 Word">💾 下载 Word</button>
+            <button class="btn" id="btn-export-html" title="导出为 HTML">🌐 导出 HTML</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn" id="btn-bold" title="加粗 (Ctrl+B)"><b>B</b></button>
+            <button class="btn" id="btn-italic" title="斜体 (Ctrl+I)"><i>I</i></button>
+            <button class="btn" id="btn-underline" title="下划线 (Ctrl+U)"><u>U</u></button>
+            <button class="btn" id="btn-strikethrough" title="删除线"><s>S</s></button>
+        </div>
+        
+        <div class="toolbar-group">
+            <select class="select-input" id="font-size">
+                <option value="10pt">10pt</option>
+                <option value="11pt">11pt</option>
+                <option value="12pt" selected>12pt</option>
+                <option value="14pt">14pt</option>
+                <option value="16pt">16pt</option>
+                <option value="18pt">18pt</option>
+                <option value="24pt">24pt</option>
+                <option value="36pt">36pt</option>
+            </select>
+            
+            <input type="color" class="color-picker" id="font-color" value="#000000" title="字体颜色">
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn" id="btn-bullet-list" title="项目符号列表">• 列表</button>
+            <button class="btn" id="btn-numbered-list" title="编号列表">1. 列表</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn" id="btn-comment" title="添加批注">💬 批注</button>
+            <button class="btn" id="btn-revision" title="修订模式">✏️ 修订</button>
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn" id="btn-api-config" title="API 配置">⚙️ API 配置</button>
+        </div>
     </div>
-    <div class="comments"></div>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 左侧编辑器面板 -->
+        <div class="editor-panel">
+            <div class="editor-scroll-container" id="editor-scroll">
+                <div class="word-page">
+                    <svg class="svg-layer" id="svg-layer"></svg>
+                    <div class="editor-content" id="editor" contenteditable="true" spellcheck="false">
+                        <p>欢迎使用 Word 文档与 AI 协作平台！</p>
+                        <p>您可以：</p>
+                        <ul>
+                            <li>导入现有的 Word 文档（.docx）</li>
+                            <li>直接粘贴 Word 内容（保留格式）</li>
+                            <li>使用丰富的编辑工具格式化文本</li>
+                            <li>添加批注并与 AI 协作</li>
+                            <li>导出为 Word 或 HTML 格式</li>
+                        </ul>
+                        <p>开始您的高效写作之旅吧！</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 批注轨道 -->
+            <div class="comments-rail" id="comments-rail">
+                <!-- 批注卡片将动态插入到这里 -->
+            </div>
+        </div>
+
+        <!-- 右侧 AI 面板 -->
+        <div class="ai-panel">
+            <div class="ai-header">
+                <div class="ai-title">AI 智能助手</div>
+                <div class="ai-status">
+                    <span class="status-dot" id="api-status-dot"></span>
+                    <span id="api-status-text">未连接</span>
+                </div>
+            </div>
+            
+            <div class="ai-messages" id="ai-messages">
+                <div class="message ai">
+                    <div class="message-summary">👋 您好！我是您的 AI 写作助手</div>
+                    <p>我可以帮助您：</p>
+                    <ul class="message-issues">
+                        <li>✓ 检查文本错误和语法问题</li>
+                        <li>✓ 优化表达和句式结构</li>
+                        <li>✓ 检查逻辑连贯性</li>
+                        <li>✓ 确保格式规范统一</li>
+                        <li>✓ 总结文档要点</li>
+                    </ul>
+                    <p style="margin-top: 12px;">选择一段文本或直接输入指令开始吧！</p>
+                </div>
+            </div>
+            
+            <div class="quick-actions">
+                <button class="quick-action-btn" data-action="check-errors">检查错误</button>
+                <button class="quick-action-btn" data-action="optimize">优化表达</button>
+                <button class="quick-action-btn" data-action="check-logic">检查逻辑</button>
+                <button class="quick-action-btn" data-action="format-check">格式规范</button>
+                <button class="quick-action-btn" data-action="summarize">总结要点</button>
+            </div>
+            
+            <div class="ai-input-area">
+                <div class="ai-input-wrapper">
+                    <textarea 
+                        class="ai-textarea" 
+                        id="ai-input" 
+                        placeholder="输入指令或问题...（支持多行，Shift+Enter 换行）"
+                        rows="2"
+                    ></textarea>
+                    <button class="send-btn" id="btn-send">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="status-bar">
+        <div class="status-left">
+            <div class="status-item">
+                <span>字数：<strong id="word-count">0</strong></span>
+            </div>
+            <div class="status-item">
+                <span>批注：<strong id="comment-count">0</strong></span>
+            </div>
+        </div>
+        <div class="status-right">
+            <div class="status-item">
+                <span>最后保存：<strong id="last-saved">刚刚</strong></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入模态框 -->
+    <div class="modal-overlay" id="import-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">导入 Word 文档</h3>
+                <button class="modal-close" data-close="import-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-zone-icon">📄</div>
+                    <div class="drop-zone-text">拖拽 .docx 文件到此处</div>
+                    <div class="drop-zone-hint">或点击选择文件</div>
+                    <input type="file" id="file-input" accept=".docx" style="display: none;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" data-close="import-modal">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- API 配置模态框 -->
+    <div class="modal-overlay" id="api-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">AI API 配置</h3>
+                <button class="modal-close" data-close="api-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">API 端点</label>
+                    <input type="text" class="form-input" id="api-endpoint" 
+                           placeholder="https://api.openai.com/v1/chat/completions">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-input" id="api-key" 
+                           placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">模型名称</label>
+                    <input type="text" class="form-input" id="api-model" 
+                           placeholder="gpt-3.5-turbo">
+                </div>
+                <button class="btn btn-primary" id="btn-test-connection">测试连接</button>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" data-close="api-modal">取消</button>
+                <button class="btn btn-primary" id="btn-save-api">保存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 容器 -->
+    <div class="toast-container" id="toast-container"></div>
+
     <script>
-        $(document).ready(function() {
-            // Implement OOXML Word document parsing and import functionality here
-            // Implement rich text editing functionality here
-            // Implement intelligent comment system here
-            // Implement AI model integration with local fallback mode here
-            // Implement export to HTML and Word functionality here
-        });
+        // ==================== 安全存储引擎 ====================
+        const safeStorage = {
+            _memory: {},
+            _useMemory: false,
+            
+            init() {
+                try {
+                    localStorage.setItem('_test_', 'test');
+                    localStorage.removeItem('_test_');
+                } catch (e) {
+                    this._useMemory = true;
+                    console.warn('localStorage 不可用，切换到内存存储');
+                }
+            },
+            
+            get(key) {
+                if (this._useMemory) {
+                    return this._memory[key];
+                }
+                try {
+                    return localStorage.getItem(key);
+                } catch (e) {
+                    return this._memory[key];
+                }
+            },
+            
+            set(key, value) {
+                if (this._useMemory) {
+                    this._memory[key] = value;
+                    return;
+                }
+                try {
+                    localStorage.setItem(key, value);
+                } catch (e) {
+                    this._memory[key] = value;
+                }
+            },
+            
+            remove(key) {
+                if (this._useMemory) {
+                    delete this._memory[key];
+                    return;
+                }
+                try {
+                    localStorage.removeItem(key);
+                } catch (e) {
+                    delete this._memory[key];
+                }
+            }
+        };
+
+        safeStorage.init();
+
+        // ==================== 全局状态 ====================
+        const state = {
+            comments: [],
+            apiConfig: null,
+            revisionMode: false,
+            lastSaved: Date.now(),
+            commentIdCounter: 0
+        };
+
+        // ==================== DOM 元素引用 ====================
+        const elements = {
+            editor: document.getElementById('editor'),
+            editorScroll: document.getElementById('editor-scroll'),
+            commentsRail: document.getElementById('comments-rail'),
+            svgLayer: document.getElementById('svg-layer'),
+            aiMessages: document.getElementById('ai-messages'),
+            aiInput: document.getElementById('ai-input'),
+            wordCount: document.getElementById('word-count'),
+            commentCount: document.getElementById('comment-count'),
+            lastSaved: document.getElementById('last-saved'),
+            apiStatusDot: document.getElementById('api-status-dot'),
+            apiStatusText: document.getElementById('api-status-text'),
+            toastContainer: document.getElementById('toast-container')
+        };
+
+        // ==================== 工具函数 ====================
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            elements.toastContainer.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('visible');
+        }
+
+        function hideModal(modalId) {
+            document.getElementById(modalId).classList.remove('visible');
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // ==================== OOXML 解析引擎 ====================
+        function parseDocxToHtml(arrayBuffer) {
+            try {
+                const zip = new PizZip(arrayBuffer);
+                const parser = new DOMParser();
+                
+                // 解析文档内容
+                const docXml = zip.file("word/document.xml").asText();
+                const docDom = parser.parseFromString(docXml, "application/xml");
+                
+                // 解析样式
+                let stylesDom = null;
+                if (zip.file("word/styles.xml")) {
+                    const stylesXml = zip.file("word/styles.xml").asText();
+                    stylesDom = parser.parseFromString(stylesXml, "application/xml");
+                }
+                
+                // 解析编号
+                let numberingDom = null;
+                if (zip.file("word/numbering.xml")) {
+                    const numberingXml = zip.file("word/numbering.xml").asText();
+                    numberingDom = parser.parseFromString(numberingXml, "application/xml");
+                }
+                
+                // 解析关系（用于图片等）
+                let relsDom = null;
+                if (zip.file("word/_rels/document.xml.rels")) {
+                    const relsXml = zip.file("word/_rels/document.xml.rels").asText();
+                    relsDom = parser.parseFromString(relsXml, "application/xml");
+                }
+                
+                const body = docDom.getElementsByTagName("w:body")[0];
+                if (!body) {
+                    throw new Error("无效的 Word 文档：未找到 body 元素");
+                }
+                
+                let html = "";
+                
+                // 遍历 body 的子元素
+                for (let i = 0; i < body.childNodes.length; i++) {
+                    const node = body.childNodes[i];
+                    if (node.nodeType === 1) { // Element node
+                        if (node.nodeName === "w:p") {
+                            html += parseParagraph(node, stylesDom, numberingDom);
+                        } else if (node.nodeName === "w:tbl") {
+                            html += parseTable(node, relsDom, zip);
+                        }
+                    }
+                }
+                
+                return html;
+            } catch (error) {
+                console.error("解析 Word 文档失败:", error);
+                showToast(`导入失败：${error.message}`, 'error');
+                return '<p>文档解析失败，请确保文件格式正确。</p>';
+            }
+        }
+
+        function parseParagraph(pNode, stylesDom, numberingDom) {
+            const pPr = pNode.getElementsByTagName("w:pPr")[0];
+            const paragraphStyle = getParagraphStyle(pPr, stylesDom);
+            
+            // 检查是否为列表项
+            const numPr = pPr ? pPr.getElementsByTagName("w:numPr")[0] : null;
+            let listTag = "";
+            let listAttrs = "";
+            
+            if (numPr && numberingDom) {
+                const numId = numPr.getElementsByTagName("w:numId")[0];
+                if (numId) {
+                    const numIdVal = numId.getAttribute("w:val");
+                    const ilvl = numPr.getElementsByTagName("w:ilvl")[0];
+                    const ilvlVal = ilvl ? parseInt(ilvl.getAttribute("w:val")) : 0;
+                    
+                    // 查找编号类型
+                    const numElem = numberingDom.querySelector(`w\\:num[w\\:numId="${numIdVal}"]`);
+                    if (numElem) {
+                        const ilvlElem = numElem.querySelector(`w\\:lvl[w\\:ilvl="${ilvlVal}"]`);
+                        if (ilvlElem) {
+                            const numFmt = ilvlElem.getElementsByTagName("w:numFmt")[0];
+                            if (numFmt) {
+                                const val = numFmt.getAttribute("w:val");
+                                if (val === "bullet" || val === "none") {
+                                    listTag = "ul";
+                                } else {
+                                    listTag = "ol";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 解析运行（runs）
+            let content = "";
+            const runs = pNode.getElementsByTagName("w:r");
+            
+            for (let j = 0; j < runs.length; j++) {
+                content += parseRun(runs[j]);
+            }
+            
+            // 处理段落标签
+            let tag = "p";
+            let attrs = "";
+            
+            if (paragraphStyle) {
+                if (paragraphStyle.includes("Heading1")) { tag = "h1"; }
+                else if (paragraphStyle.includes("Heading2")) { tag = "h2"; }
+                else if (paragraphStyle.includes("Heading3")) { tag = "h3"; }
+                else if (paragraphStyle.includes("Heading4")) { tag = "h4"; }
+                else if (paragraphStyle.includes("Heading5")) { tag = "h5"; }
+                else if (paragraphStyle.includes("Heading6")) { tag = "h6"; }
+            }
+            
+            if (listTag) {
+                return `<${listTag}${listAttrs}><li>${content}</li></${listTag}>`;
+            }
+            
+            return `<${tag}${attrs}>${content}</${tag}>`;
+        }
+
+        function getParagraphStyle(pPr, stylesDom) {
+            if (!pPr) return null;
+            
+            const pStyle = pPr.getElementsByTagName("w:pStyle")[0];
+            if (!pStyle) return null;
+            
+            const styleId = pStyle.getAttribute("w:val");
+            
+            if (stylesDom) {
+                const styleElem = stylesDom.querySelector(`w\\:style[w\\:styleId="${styleId}"]`);
+                if (styleElem) {
+                    const nameElem = styleElem.getElementsByTagName("w:name")[0];
+                    if (nameElem) {
+                        return nameElem.getAttribute("w:val");
+                    }
+                }
+            }
+            
+            return styleId;
+        }
+
+        function parseRun(runNode) {
+            const rPr = runNode.getElementsByTagName("w:rPr")[0];
+            const textNodes = runNode.getElementsByTagName("w:t");
+            
+            let text = "";
+            for (let k = 0; k < textNodes.length; k++) {
+                text += textNodes[k].textContent || "";
+            }
+            
+            if (!text) return "";
+            
+            // 检查修订标记
+            const delMark = rPr ? rPr.getElementsByTagName("w:del")[0] : null;
+            const insMark = rPr ? rPr.getElementsByTagName("w:ins")[0] : null;
+            
+            if (delMark) {
+                return `<span class="revision-delete">${escapeHtml(text)}</span>`;
+            }
+            
+            if (insMark) {
+                return `<span class="revision-insert">${escapeHtml(text)}</span>`;
+            }
+            
+            // 构建样式
+            let style = "";
+            let className = "";
+            
+            if (rPr) {
+                // 加粗
+                if (rPr.getElementsByTagName("w:b")[0] || rPr.getElementsByTagName("w:bCs")[0]) {
+                    style += "font-weight: bold;";
+                }
+                
+                // 斜体
+                if (rPr.getElementsByTagName("w:i")[0] || rPr.getElementsByTagName("w:iCs")[0]) {
+                    style += "font-style: italic;";
+                }
+                
+                // 下划线
+                if (rPr.getElementsByTagName("w:u")[0]) {
+                    style += "text-decoration: underline;";
+                }
+                
+                // 删除线
+                if (rPr.getElementsByTagName("w:strike")[0] || rPr.getElementsByTagName("w:s")[0]) {
+                    style += "text-decoration: line-through;";
+                }
+                
+                // 字号
+                const sz = rPr.getElementsByTagName("w:sz")[0];
+                if (sz) {
+                    const szVal = parseInt(sz.getAttribute("w:val"));
+                    if (szVal) {
+                        style += `font-size: ${szVal / 2}pt;`;
+                    }
+                }
+                
+                // 字体颜色
+                const color = rPr.getElementsByTagName("w:color")[0];
+                if (color) {
+                    const colorVal = color.getAttribute("w:val");
+                    if (colorVal && colorVal !== "000000") {
+                        style += `color: #${colorVal};`;
+                    }
+                }
+                
+                // 高亮
+                const highlight = rPr.getElementsByTagName("w:highlight")[0];
+                if (highlight) {
+                    const highlightVal = highlight.getAttribute("w:val");
+                    if (highlightVal && highlightVal !== "none") {
+                        const highlightClass = getHighlightClass(highlightVal);
+                        if (highlightClass) {
+                            className = highlightClass;
+                        }
+                    }
+                }
+                
+                // 上标
+                if (rPr.getElementsByTagName("w:superscript")[0]) {
+                    style += "vertical-align: super; font-size: smaller;";
+                }
+                
+                // 下标
+                if (rPr.getElementsByTagName("w:subscript")[0]) {
+                    style += "vertical-align: sub; font-size: smaller;";
+                }
+            }
+            
+            if (style || className) {
+                const styleAttr = style ? ` style="${style}"` : "";
+                const classAttr = className ? ` class="${className}"` : "";
+                return `<span${classAttr}${styleAttr}>${escapeHtml(text)}</span>`;
+            }
+            
+            return escapeHtml(text);
+        }
+
+        function getHighlightClass(colorName) {
+            const map = {
+                yellow: "highlight-yellow",
+                green: "highlight-green",
+                blue: "highlight-blue",
+                red: "highlight-red",
+                cyan: "highlight-blue",
+                magenta: "highlight-red"
+            };
+            return map[colorName.toLowerCase()] || null;
+        }
+
+        function parseTable(tblNode, relsDom, zip) {
+            let html = "<table>";
+            const rows = tblNode.getElementsByTagName("w:tr");
+            
+            for (let i = 0; i < rows.length; i++) {
+                html += "<tr>";
+                const cells = rows[i].getElementsByTagName("w:tc");
+                
+                for (let j = 0; j < cells.length; j++) {
+                    const cell = cells[j];
+                    const isHeader = cell.getElementsByTagName("w:tcPr")[0]?.getElementsByTagName("w:shd")[0];
+                    const tag = isHeader ? "th" : "td";
+                    
+                    let cellContent = "";
+                    const paragraphs = cell.getElementsByTagName("w:p");
+                    
+                    for (let k = 0; k < paragraphs.length; k++) {
+                        cellContent += parseParagraph(paragraphs[k], null, null);
+                    }
+                    
+                    html += `<${tag}>${cellContent}</${tag}>`;
+                }
+                
+                html += "</tr>";
+            }
+            
+            html += "</table>";
+            return html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ==================== 批注系统 ====================
+        function createComment(range, quote, type = "general", suggestion = "") {
+            const id = ++state.commentIdCounter;
+            const comment = {
+                id,
+                quote,
+                type,
+                content: "",
+                suggestion,
+                range: saveRange(range),
+                element: null
+            };
+            
+            state.comments.push(comment);
+            renderCommentCard(comment);
+            updateAllComments();
+            updateStatusBar();
+            saveState();
+            
+            return comment;
+        }
+
+        function saveRange(range) {
+            if (!range) return null;
+            
+            const preCaretRange = range.cloneRange();
+            preCaretRange.selectNodeContents(elements.editor);
+            preCaretRange.setEnd(range.startContainer, range.startOffset);
+            const start = preCaretRange.toString().length;
+            
+            preCaretRange.setEnd(range.endContainer, range.endOffset);
+            const end = preCaretRange.toString().length;
+            
+            return { start, end };
+        }
+
+        function restoreRange(savedRange) {
+            if (!savedRange) return null;
+            
+            const textNodes = getTextNodes(elements.editor);
+            let currentLength = 0;
+            let startNode = null, startOffset = 0;
+            let endNode = null, endOffset = 0;
+            
+            for (const textNode of textNodes) {
+                const nodeLength = textNode.length;
+                
+                if (!startNode && currentLength + nodeLength >= savedRange.start) {
+                    startNode = textNode;
+                    startOffset = savedRange.start - currentLength;
+                }
+                
+                if (!endNode && currentLength + nodeLength >= savedRange.end) {
+                    endNode = textNode;
+                    endOffset = savedRange.end - currentLength;
+                    break;
+                }
+                
+                currentLength += nodeLength;
+            }
+            
+            if (startNode && endNode) {
+                const range = document.createRange();
+                range.setStart(startNode, startOffset);
+                range.setEnd(endNode, endOffset);
+                return range;
+            }
+            
+            return null;
+        }
+
+        function getTextNodes(node) {
+            const textNodes = [];
+            const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+            
+            let curr;
+            while ((curr = walker.nextNode())) {
+                if (curr.textContent.trim()) {
+                    textNodes.push(curr);
+                }
+            }
+            
+            return textNodes;
+        }
+
+        function renderCommentCard(comment) {
+            const card = document.createElement("div");
+            card.className = "comment-card";
+            card.dataset.commentId = comment.id;
+            
+            const typeLabels = {
+                issue: "问题",
+                suggestion: "建议",
+                note: "备注",
+                general: "一般"
+            };
+            
+            card.innerHTML = `
+                <div class="comment-header">
+                    <span class="comment-type ${comment.type}">${typeLabels[comment.type] || "一般"}</span>
+                    <button class="comment-delete" title="删除批注">&times;</button>
+                </div>
+                <div class="comment-quote">${escapeHtml(comment.quote.substring(0, 50))}${comment.quote.length > 50 ? '...' : ''}</div>
+                <div class="comment-content" contenteditable="true" placeholder="输入批注内容...">${escapeHtml(comment.content)}</div>
+                ${comment.suggestion ? `<div class="comment-suggestion">💡 建议：${escapeHtml(comment.suggestion)}</div>` : ''}
+            `;
+            
+            // 事件绑定
+            const deleteBtn = card.querySelector(".comment-delete");
+            deleteBtn.addEventListener("click", () => deleteComment(comment.id));
+            
+            const contentDiv = card.querySelector(".comment-content");
+            contentDiv.addEventListener("input", debounce(() => {
+                comment.content = contentDiv.innerText;
+                saveState();
+            }, 300));
+            
+            elements.commentsRail.appendChild(card);
+            comment.element = card;
+        }
+
+        function deleteComment(id) {
+            const index = state.comments.findIndex(c => c.id === id);
+            if (index !== -1) {
+                const comment = state.comments[index];
+                if (comment.element) {
+                    comment.element.remove();
+                }
+                state.comments.splice(index, 1);
+                updateAllComments();
+                updateStatusBar();
+                saveState();
+                showToast("批注已删除", "info");
+            }
+        }
+
+        function updateAllComments() {
+            // 按目标 Y 坐标排序
+            const commentsWithPos = state.comments.map(comment => {
+                const range = restoreRange(comment.range);
+                let targetY = 0;
+                
+                if (range) {
+                    const rect = range.getBoundingClientRect();
+                    const editorRect = elements.editor.getBoundingClientRect();
+                    targetY = rect.top - editorRect.top + elements.editorScroll.scrollTop;
+                }
+                
+                return { comment, targetY };
+            });
+            
+            commentsWithPos.sort((a, b) => a.targetY - b.targetY);
+            
+            let currentBottom = 20;
+            const gap = 16;
+            
+            commentsWithPos.forEach(({ comment, targetY }) => {
+                if (comment.element) {
+                    const cardHeight = comment.element.offsetHeight + gap;
+                    const top = Math.max(targetY, currentBottom);
+                    
+                    comment.element.style.position = "absolute";
+                    comment.element.style.left = "10px";
+                    comment.element.style.top = `${top}px`;
+                    comment.element.style.width = "calc(100% - 20px)";
+                    
+                    currentBottom = top + cardHeight;
+                }
+            });
+            
+            drawCommentLines();
+        }
+
+        function drawCommentLines() {
+            elements.svgLayer.innerHTML = "";
+            
+            state.comments.forEach(comment => {
+                const range = restoreRange(comment.range);
+                if (!range || !comment.element) return;
+                
+                const textRect = range.getBoundingClientRect();
+                const editorRect = elements.editor.getBoundingClientRect();
+                const cardRect = comment.element.getBoundingClientRect();
+                
+                const x1 = textRect.right - editorRect.left;
+                const y1 = textRect.top + textRect.height / 2 - editorRect.top + elements.editorScroll.scrollTop;
+                
+                const x2 = cardRect.left - editorRect.left;
+                const y2 = cardRect.top + cardRect.height / 2 - editorRect.top + elements.editorScroll.scrollTop;
+                
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", `M ${x1} ${y1} L ${x2} ${y2}`);
+                path.setAttribute("class", "comment-line");
+                elements.svgLayer.appendChild(path);
+            });
+        }
+
+        // ==================== AI 桥接模块 ====================
+        async function callAI(prompt, selectedText = "") {
+            if (!state.apiConfig || !state.apiConfig.endpoint || !state.apiConfig.key) {
+                return simulateAIResponse(prompt, selectedText);
+            }
+            
+            const systemPrompt = `你是一个专业的文档编辑助手。请分析用户提供的文本，并以严格的 JSON 格式返回结果。
+
+响应格式要求：
+{
+    "summary": "对文本的简要总结",
+    "issues": [
+        {
+            "quote": "原文引用（必须精确匹配）",
+            "type": "issue|suggestion|note|general",
+            "suggestion": "修改建议或批注内容"
+        }
+    ]
+}
+
+请确保：
+1. JSON 格式完全正确，可直接解析
+2. quote 必须是原文中的确切片段
+3. 提供具体、可操作的改进建议`;
+
+            const userPrompt = selectedText 
+                ? `请分析以下文本：\n\n"${selectedText}"\n\n用户指令：${prompt}`
+                : `请分析整个文档内容。\n\n用户指令：${prompt}`;
+
+            try {
+                const response = await fetch(state.apiConfig.endpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${state.apiConfig.key}`
+                    },
+                    body: JSON.stringify({
+                        model: state.apiConfig.model || "gpt-3.5-turbo",
+                        messages: [
+                            { role: "system", content: systemPrompt },
+                            { role: "user", content: userPrompt }
+                        ],
+                        temperature: 0.3,
+                        max_tokens: 2000
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API 请求失败：${response.status}`);
+                }
+
+                const data = await response.json();
+                const content = data.choices?.[0]?.message?.content;
+                
+                if (!content) {
+                    throw new Error("API 返回内容为空");
+                }
+
+                // 尝试提取 JSON
+                const jsonMatch = content.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    return JSON.parse(jsonMatch[0]);
+                } else {
+                    throw new Error("无法从响应中提取 JSON");
+                }
+            } catch (error) {
+                console.error("AI 调用失败:", error);
+                showToast(`AI 调用失败：${error.message}，已降级为模拟模式`, "warning");
+                return simulateAIResponse(prompt, selectedText);
+            }
+        }
+
+        function simulateAIResponse(prompt, selectedText) {
+            // 本地模拟规则引擎
+            const text = selectedText || elements.editor.innerText;
+            const issues = [];
+            
+            // 简单规则检查
+            const rules = [
+                { pattern: /\s{2,}/g, type: "issue", suggestion: "存在多余空格，建议删除" },
+                { pattern: /[，。！？；：][a-zA-Z]/g, type: "suggestion", suggestion: "中英文标点混用，建议统一" },
+                { pattern: /[a-zA-Z][，。！？；：]/g, type: "suggestion", suggestion: "中英文标点混用，建议统一" },
+                { pattern: /的{2,}/g, type: "issue", suggestion: "连续使用'的'字，建议优化表达" },
+                { pattern: /(进行 | 做出 | 加以)\s*(分析 | 处理 | 研究)/g, type: "suggestion", suggestion: "可简化表达，直接使用动词" }
+            ];
+            
+            rules.forEach(rule => {
+                const matches = text.matchAll(rule.pattern);
+                for (const match of matches) {
+                    issues.push({
+                        quote: match[0],
+                        type: rule.type,
+                        suggestion: rule.suggestion
+                    });
+                }
+            });
+            
+            // 如果没有发现问题
+            if (issues.length === 0) {
+                issues.push({
+                    quote: text.substring(0, 30),
+                    type: "note",
+                    suggestion: "文本质量良好，未发现明显问题"
+                });
+            }
+            
+            return {
+                summary: prompt.includes("总结") ? "文档要点总结..." : "已完成文本分析",
+                issues: issues.slice(0, 5) // 限制最多 5 个问题
+            };
+        }
+
+        function findTextAndAddComments(quote, type, suggestion) {
+            const text = elements.editor.innerText;
+            const index = text.indexOf(quote);
+            
+            if (index === -1) {
+                console.warn("未找到匹配的文本:", quote);
+                return null;
+            }
+            
+            const textNodes = getTextNodes(elements.editor);
+            let currentLength = 0;
+            let startNode = null, startOffset = 0;
+            let endNode = null, endOffset = 0;
+            
+            for (const textNode of textNodes) {
+                const nodeLength = textNode.length;
+                
+                if (!startNode && currentLength + nodeLength > index) {
+                    startNode = textNode;
+                    startOffset = index - currentLength;
+                }
+                
+                if (startNode && !endNode && currentLength + nodeLength >= index + quote.length) {
+                    endNode = textNode;
+                    endOffset = index + quote.length - currentLength;
+                    break;
+                }
+                
+                currentLength += nodeLength;
+            }
+            
+            if (startNode && endNode) {
+                const range = document.createRange();
+                range.setStart(startNode, startOffset);
+                range.setEnd(endNode, endOffset);
+                
+                // 创建高亮
+                const highlightSpan = document.createElement("span");
+                highlightSpan.className = `highlight-${type === 'issue' ? 'red' : type === 'suggestion' ? 'blue' : 'yellow'}`;
+                
+                try {
+                    range.surroundContents(highlightSpan);
+                } catch (e) {
+                    console.warn("无法创建高亮:", e);
+                }
+                
+                return createComment(range, quote, type, suggestion);
+            }
+            
+            return null;
+        }
+
+        // ==================== 导出模块 ====================
+        function exportToHTML() {
+            const content = elements.editor.innerHTML;
+            const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>导出的文档</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; max-width: 210mm; margin: 0 auto; padding: 25mm; line-height: 1.6; }
+        h1 { font-size: 24pt; } h2 { font-size: 18pt; } h3 { font-size: 14pt; }
+        .highlight-yellow { background-color: #fef08a; }
+        .highlight-green { background-color: #bbf7d0; }
+        .highlight-blue { background-color: #bfdbfe; }
+        .highlight-red { background-color: #fecaca; }
+        .revision-insert { background-color: #d1fae5; text-decoration: underline; }
+        .revision-delete { background-color: #fee2e2; text-decoration: line-through; color: #ef4444; }
+    </style>
+</head>
+<body>
+${content}
+</body>
+</html>`;
+            
+            const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+            saveAs(blob, "文档.html");
+            showToast("HTML 导出成功", "success");
+        }
+
+        function exportToWord() {
+            try {
+                // 简化的导出：将当前内容转换为 docx
+                const { Document, Packer, Paragraph, TextRun, HeadingLevel } = docx;
+                
+                const paragraphs = [];
+                const nodes = elements.editor.childNodes;
+                
+                nodes.forEach(node => {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        if (node.textContent.trim()) {
+                            paragraphs.push(new Paragraph({
+                                children: [new TextRun(node.textContent)]
+                            }));
+                        }
+                    } else if (node.nodeType === Node.ELEMENT_NODE) {
+                        const para = elementToParagraph(node);
+                        if (para) paragraphs.push(para);
+                    }
+                });
+                
+                const doc = new Document({
+                    sections: [{
+                        properties: {},
+                        children: paragraphs
+                    }]
+                });
+                
+                Packer.toBlob(doc).then(blob => {
+                    saveAs(blob, "文档.docx");
+                    showToast("Word 导出成功", "success");
+                });
+            } catch (error) {
+                console.error("Word 导出失败:", error);
+                showToast("Word 导出失败，请使用浏览器打印功能保存为 PDF", "warning");
+            }
+        }
+
+        function elementToParagraph(element) {
+            const { Paragraph, TextRun, HeadingLevel } = docx;
+            
+            const runs = [];
+            
+            if (element.nodeType === Node.TEXT_NODE) {
+                return new Paragraph({
+                    children: [new TextRun(element.textContent || "")]
+                });
+            }
+            
+            const tagName = element.tagName.toLowerCase();
+            let headingLevel = null;
+            
+            if (tagName === "h1") headingLevel = HeadingLevel.HEADING_1;
+            else if (tagName === "h2") headingLevel = HeadingLevel.HEADING_2;
+            else if (tagName === "h3") headingLevel = HeadingLevel.HEADING_3;
+            else if (tagName === "h4") headingLevel = HeadingLevel.HEADING_4;
+            else if (tagName === "h5") headingLevel = HeadingLevel.HEADING_5;
+            else if (tagName === "h6") headingLevel = HeadingLevel.HEADING_6;
+            
+            // 处理子节点
+            element.childNodes.forEach(child => {
+                if (child.nodeType === Node.TEXT_NODE) {
+                    runs.push(new TextRun({
+                        text: child.textContent,
+                        bold: element.style.fontWeight === "bold",
+                        italics: element.style.fontStyle === "italic",
+                        color: element.style.color?.replace("#", "") || "000000"
+                    }));
+                } else if (child.nodeType === Node.ELEMENT_NODE) {
+                    const childRuns = elementToChildRuns(child);
+                    runs.push(...childRuns);
+                }
+            });
+            
+            return new Paragraph({
+                heading: headingLevel,
+                children: runs.length > 0 ? runs : [new TextRun("")]
+            });
+        }
+
+        function elementToChildRuns(element) {
+            const { TextRun } = docx;
+            const runs = [];
+            
+            const style = window.getComputedStyle(element);
+            
+            element.childNodes.forEach(child => {
+                if (child.nodeType === Node.TEXT_NODE) {
+                    runs.push(new TextRun({
+                        text: child.textContent,
+                        bold: style.fontWeight === "bold" || element.tagName === "B" || element.tagName === "STRONG",
+                        italics: style.fontStyle === "italic" || element.tagName === "I" || element.tagName === "EM",
+                        underline: style.textDecoration === "underline" || element.tagName === "U",
+                        strike: style.textDecoration === "line-through" || element.tagName === "S" || element.tagName === "STRIKE"
+                    }));
+                } else if (child.nodeType === Node.ELEMENT_NODE) {
+                    runs.push(...elementToChildRuns(child));
+                }
+            });
+            
+            return runs;
+        }
+
+        // ==================== 状态管理 ====================
+        function saveState() {
+            state.lastSaved = Date.now();
+            
+            const data = {
+                content: elements.editor.innerHTML,
+                comments: state.comments.map(c => ({
+                    id: c.id,
+                    quote: c.quote,
+                    type: c.type,
+                    content: c.content,
+                    suggestion: c.suggestion,
+                    range: c.range
+                }))
+            };
+            
+            safeStorage.set("word-editor-state", JSON.stringify(data));
+            updateStatusBar();
+        }
+
+        function loadState() {
+            const saved = safeStorage.get("word-editor-state");
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    elements.editor.innerHTML = data.content || elements.editor.innerHTML;
+                    
+                    if (data.comments) {
+                        state.comments = [];
+                        state.commentIdCounter = 0;
+                        
+                        data.comments.forEach(c => {
+                            state.commentIdCounter = Math.max(state.commentIdCounter, c.id);
+                            createComment(null, c.quote, c.type, c.suggestion);
+                            const comment = state.comments[state.comments.length - 1];
+                            comment.content = c.content;
+                            comment.range = c.range;
+                            
+                            if (comment.element) {
+                                const contentDiv = comment.element.querySelector(".comment-content");
+                                if (contentDiv) {
+                                    contentDiv.innerText = c.content;
+                                }
+                            }
+                        });
+                        
+                        updateAllComments();
+                    }
+                    
+                    updateWordCount();
+                    updateStatusBar();
+                } catch (e) {
+                    console.error("加载状态失败:", e);
+                }
+            }
+        }
+
+        function updateStatusBar() {
+            elements.commentCount.textContent = state.comments.length;
+            elements.lastSaved.textContent = formatTimeAgo(state.lastSaved);
+        }
+
+        function updateWordCount() {
+            const text = elements.editor.innerText;
+            const count = text.replace(/\s/g, "").length;
+            elements.wordCount.textContent = count;
+        }
+
+        function formatTimeAgo(timestamp) {
+            const seconds = Math.floor((Date.now() - timestamp) / 1000);
+            
+            if (seconds < 60) return "刚刚";
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟前`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)}小时前`;
+            return `${Math.floor(seconds / 86400)}天前`;
+        }
+
+        // ==================== 事件监听器 ====================
+        function setupEventListeners() {
+            // 工具栏按钮
+            document.getElementById("btn-import").addEventListener("click", () => showModal("import-modal"));
+            document.getElementById("btn-export-word").addEventListener("click", exportToWord);
+            document.getElementById("btn-export-html").addEventListener("click", exportToHTML);
+            
+            document.getElementById("btn-bold").addEventListener("click", () => execCmd("bold"));
+            document.getElementById("btn-italic").addEventListener("click", () => execCmd("italic"));
+            document.getElementById("btn-underline").addEventListener("click", () => execCmd("underline"));
+            document.getElementById("btn-strikethrough").addEventListener("click", () => execCmd("strikeThrough"));
+            
+            document.getElementById("btn-bullet-list").addEventListener("click", () => execCmd("insertUnorderedList"));
+            document.getElementById("btn-numbered-list").addEventListener("click", () => execCmd("insertOrderedList"));
+            
+            document.getElementById("font-size").addEventListener("change", (e) => {
+                execCmd("fontSize", e.target.value);
+            });
+            
+            document.getElementById("font-color").addEventListener("input", (e) => {
+                execCmd("foreColor", e.target.value);
+            });
+            
+            document.getElementById("btn-comment").addEventListener("click", addCommentFromSelection);
+            
+            document.getElementById("btn-revision").addEventListener("click", () => {
+                state.revisionMode = !state.revisionMode;
+                document.getElementById("btn-revision").classList.toggle("active", state.revisionMode);
+                showToast(state.revisionMode ? "修订模式已开启" : "修订模式已关闭", "info");
+            });
+            
+            document.getElementById("btn-api-config").addEventListener("click", () => {
+                if (state.apiConfig) {
+                    document.getElementById("api-endpoint").value = state.apiConfig.endpoint || "";
+                    document.getElementById("api-key").value = state.apiConfig.key || "";
+                    document.getElementById("api-model").value = state.apiConfig.model || "";
+                }
+                showModal("api-modal");
+            });
+            
+            // 模态框关闭
+            document.querySelectorAll("[data-close]").forEach(btn => {
+                btn.addEventListener("click", () => hideModal(btn.dataset.close));
+            });
+            
+            document.querySelectorAll(".modal-overlay").forEach(overlay => {
+                overlay.addEventListener("click", (e) => {
+                    if (e.target === overlay) {
+                        hideModal(overlay.id);
+                    }
+                });
+            });
+            
+            // 文件拖拽上传
+            const dropZone = document.getElementById("drop-zone");
+            const fileInput = document.getElementById("file-input");
+            
+            dropZone.addEventListener("click", () => fileInput.click());
+            
+            dropZone.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                dropZone.classList.add("dragover");
+            });
+            
+            dropZone.addEventListener("dragleave", () => {
+                dropZone.classList.remove("dragover");
+            });
+            
+            dropZone.addEventListener("drop", (e) => {
+                e.preventDefault();
+                dropZone.classList.remove("dragover");
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFileSelect(files[0]);
+                }
+            });
+            
+            fileInput.addEventListener("change", (e) => {
+                if (e.target.files.length > 0) {
+                    handleFileSelect(e.target.files[0]);
+                }
+            });
+            
+            // API 配置
+            document.getElementById("btn-test-connection").addEventListener("click", testApiConnection);
+            document.getElementById("btn-save-api").addEventListener("click", saveApiConfig);
+            
+            // AI 输入
+            document.getElementById("btn-send").addEventListener("click", sendAiMessage);
+            
+            elements.aiInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendAiMessage();
+                }
+            });
+            
+            // 快捷操作
+            document.querySelectorAll(".quick-action-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const action = btn.dataset.action;
+                    handleQuickAction(action);
+                });
+            });
+            
+            // 编辑器事件
+            elements.editor.addEventListener("input", debounce(() => {
+                updateWordCount();
+                saveState();
+            }, 500));
+            
+            elements.editor.addEventListener("keyup", updateWordCount);
+            elements.editor.addEventListener("mouseup", handleEditorMouseUp);
+            
+            elements.editorScroll.addEventListener("scroll", debounce(() => {
+                updateAllComments();
+            }, 50));
+            
+            // 窗口大小变化
+            window.addEventListener("resize", debounce(() => {
+                updateAllComments();
+            }, 100));
+            
+            // 快捷键
+            document.addEventListener("keydown", (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    if (e.key === "s") {
+                        e.preventDefault();
+                        saveState();
+                        showToast("已保存", "success");
+                    }
+                }
+            });
+        }
+
+        function execCmd(command, value = null) {
+            document.execCommand(command, false, value);
+            elements.editor.focus();
+            saveState();
+        }
+
+        function addCommentFromSelection() {
+            const selection = window.getSelection();
+            
+            if (selection.rangeCount === 0 || selection.isCollapsed) {
+                showToast("请先选择一段文本", "warning");
+                return;
+            }
+            
+            const range = selection.getRangeAt(0);
+            const quote = selection.toString().trim();
+            
+            if (!quote) {
+                showToast("请选择要批注的文本", "warning");
+                return;
+            }
+            
+            const comment = createComment(range, quote);
+            
+            // 聚焦到批注内容
+            if (comment.element) {
+                const contentDiv = comment.element.querySelector(".comment-content");
+                contentDiv.focus();
+            }
+            
+            selection.removeAllRanges();
+        }
+
+        function handleEditorMouseUp() {
+            // 可以在这里添加选中检测逻辑
+        }
+
+        function handleFileSelect(file) {
+            if (!file.name.endsWith(".docx")) {
+                showToast("请选择 .docx 格式的文件", "error");
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const arrayBuffer = e.target.result;
+                const html = parseDocxToHtml(arrayBuffer);
+                
+                if (html) {
+                    elements.editor.innerHTML = html;
+                    updateWordCount();
+                    saveState();
+                    hideModal("import-modal");
+                    showToast("文档导入成功", "success");
+                }
+            };
+            
+            reader.onerror = () => {
+                showToast("文件读取失败", "error");
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function testApiConnection() {
+            const endpoint = document.getElementById("api-endpoint").value.trim();
+            const key = document.getElementById("api-key").value.trim();
+            const model = document.getElementById("api-model").value.trim() || "gpt-3.5-turbo";
+            
+            if (!endpoint || !key) {
+                showToast("请填写端点和 API Key", "warning");
+                return;
+            }
+            
+            const btn = document.getElementById("btn-test-connection");
+            btn.disabled = true;
+            btn.textContent = "测试中...";
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${key}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [{ role: "user", content: "Hello" }],
+                        max_tokens: 5
+                    })
+                });
+                
+                if (response.ok) {
+                    showToast("连接成功！", "success");
+                    updateApiStatus(true);
+                } else {
+                    const error = await response.text();
+                    showToast(`连接失败：${response.status} - ${error}`, "error");
+                    updateApiStatus(false);
+                }
+            } catch (error) {
+                showToast(`连接失败：${error.message}`, "error");
+                updateApiStatus(false);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "测试连接";
+            }
+        }
+
+        function saveApiConfig() {
+            const endpoint = document.getElementById("api-endpoint").value.trim();
+            const key = document.getElementById("api-key").value.trim();
+            const model = document.getElementById("api-model").value.trim();
+            
+            state.apiConfig = { endpoint, key, model };
+            safeStorage.set("api-config", JSON.stringify(state.apiConfig));
+            
+            updateApiStatus(!!endpoint && !!key);
+            hideModal("api-modal");
+            showToast("API 配置已保存", "success");
+        }
+
+        function updateApiStatus(connected) {
+            if (connected) {
+                elements.apiStatusDot.classList.add("connected");
+                elements.apiStatusText.textContent = "已连接";
+            } else {
+                elements.apiStatusDot.classList.remove("connected");
+                elements.apiStatusText.textContent = "未连接";
+            }
+        }
+
+        function sendAiMessage() {
+            const input = elements.aiInput.value.trim();
+            if (!input) return;
+            
+            addMessage("user", input);
+            elements.aiInput.value = "";
+            
+            processAiRequest(input);
+        }
+
+        function addMessage(role, content, data = null) {
+            const message = document.createElement("div");
+            message.className = `message ${role}`;
+            
+            if (role === "ai" && data) {
+                let html = `<div class="message-summary">📊 ${escapeHtml(data.summary)}</div>`;
+                
+                if (data.issues && data.issues.length > 0) {
+                    html += "<ul class='message-issues'>";
+                    data.issues.forEach(issue => {
+                        const typeLabel = issue.type === "issue" ? "❗" : issue.type === "suggestion" ? "💡" : "📝";
+                        html += `<li>${typeLabel} <strong>"${escapeHtml(issue.quote)}"</strong><br>${escapeHtml(issue.suggestion)}</li>`;
+                    });
+                    html += "</ul>";
+                }
+                
+                message.innerHTML = html;
+            } else {
+                message.textContent = content;
+            }
+            
+            elements.aiMessages.appendChild(message);
+            elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
+        }
+
+        async function processAiRequest(prompt) {
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
+            
+            const loadingMsg = document.createElement("div");
+            loadingMsg.className = "message ai";
+            loadingMsg.textContent = "正在分析...";
+            elements.aiMessages.appendChild(loadingMsg);
+            elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
+            
+            const result = await callAI(prompt, selectedText);
+            
+            loadingMsg.remove();
+            addMessage("ai", "", result);
+            
+            // 自动添加批注
+            if (result.issues && result.issues.length > 0) {
+                result.issues.forEach(issue => {
+                    findTextAndAddComments(issue.quote, issue.type, issue.suggestion);
+                });
+                
+                updateAllComments();
+                showToast(`已添加 ${result.issues.length} 条批注`, "success");
+            }
+        }
+
+        function handleQuickAction(action) {
+            const prompts = {
+                "check-errors": "请检查这段文本中的语法错误、拼写错误和用词不当之处",
+                "optimize": "请优化这段文本的表达，使其更加流畅、专业和易读",
+                "check-logic": "请检查这段文本的逻辑连贯性，指出可能存在的逻辑问题",
+                "format-check": "请检查这段文本的格式规范性，包括标点、空格、段落结构等",
+                "summarize": "请总结这段文本的核心要点"
+            };
+            
+            const prompt = prompts[action];
+            if (prompt) {
+                elements.aiInput.value = prompt;
+                sendAiMessage();
+            }
+        }
+
+        function pasteHandler(e) {
+            // 允许富文本粘贴
+            // 浏览器会默认处理 Word 格式的粘贴
+        }
+
+        // ==================== 初始化 ====================
+        function init() {
+            setupEventListeners();
+            loadState();
+            updateWordCount();
+            
+            // 加载 API 配置
+            const savedConfig = safeStorage.get("api-config");
+            if (savedConfig) {
+                try {
+                    state.apiConfig = JSON.parse(savedConfig);
+                    updateApiStatus(!!state.apiConfig.endpoint && !!state.apiConfig.key);
+                } catch (e) {
+                    console.error("加载 API 配置失败:", e);
+                }
+            }
+            
+            // 粘贴处理
+            elements.editor.addEventListener("paste", pasteHandler);
+            
+            showToast("应用已就绪", "success");
+        }
+
+        // 启动应用
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", init);
+        } else {
+            init();
+        }
     </script>
 </body>
 </html>
