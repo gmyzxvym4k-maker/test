@@ -126,6 +126,8 @@
             overflow: auto;
             padding: 32px;
             position: relative;
+            /* 确保批注轨道和 SVG 层与此容器一起滚动 */
+            contain: layout style;
         }
 
         .word-page {
@@ -144,7 +146,7 @@
             color: var(--text-muted);
         }
 
-        /* 批注轨道 */
+        /* 批注轨道 - 与 editor-scroll-container 共享滚动上下文 */
         .comments-rail {
             position: absolute;
             right: 0;
@@ -152,8 +154,9 @@
             bottom: 0;
             width: var(--sidebar-width);
             padding: 32px 16px;
-            overflow-y: auto;
+            overflow: visible;
             pointer-events: none;
+            box-sizing: border-box;
         }
 
         .comment-card {
@@ -161,12 +164,11 @@
             border: 1px solid var(--comment-border);
             border-radius: 8px;
             padding: 12px;
-            margin-bottom: 16px;
-            position: absolute;
+            position: absolute; /* 移除 margin-bottom，使用绝对定位 */
             width: calc(var(--sidebar-width) - 32px);
             pointer-events: auto;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            transition: top 0.3s ease;
+            transition: top 0.2s ease; /* 加快过渡速度 */
         }
 
         .comment-card:hover {
@@ -503,8 +505,8 @@
             <div class="editor-scroll-container" id="editor-scroll">
                 <div class="word-page" id="editor" contenteditable="true" spellcheck="false"></div>
                 <svg class="svg-layer" id="svg-layer"></svg>
+                <div class="comments-rail" id="comments-rail"></div>
             </div>
-            <div class="comments-rail" id="comments-rail"></div>
         </div>
 
         <!-- 右侧 AI 对话 -->
@@ -958,9 +960,10 @@
             if (!editorScroll || !commentsRail) return;
             
             const scrollTop = editorScroll.scrollTop;
+            const scrollLeft = editorScroll.scrollLeft;
             const editorRect = editorScroll.getBoundingClientRect();
             
-            // 先计算所有批注的目标位置
+            // 1. 先计算所有批注的目标位置（相对于滚动容器内容的绝对位置）
             state.comments.forEach(comment => {
                 const highlight = document.querySelector(`[data-comment-id="${comment.id}"]`);
                 const card = document.getElementById(`card-${comment.id}`);
@@ -969,16 +972,16 @@
                 
                 const highlightRect = highlight.getBoundingClientRect();
                 
-                // 计算目标 Y 位置（相对于滚动容器内容）
-                // getBoundingClientRect 返回的是视口坐标
-                // 需要转换为相对于滚动容器内容的坐标
-                // 公式：targetY = (highlightRect.top - editorRect.top) + scrollTop
-                comment.targetY = (highlightRect.top - editorRect.top) + scrollTop;
+                // 关键：计算相对于滚动容器内容的绝对坐标
+                // 视口坐标 - 容器视口坐标 + 容器滚动距离 = 容器内绝对坐标
+                comment.targetY = (highlightRect.top - editorRect.top);
+                comment.targetX = editorRect.width - 320; // 固定在右侧（视口坐标）
             });
             
-            // 按目标 Y 坐标排序（创建副本以免改变原数组顺序影响其他逻辑）
+            // 2. 按目标 Y 坐标排序（创建副本以免改变原数组顺序）
             const sortedComments = [...state.comments].sort((a, b) => a.targetY - b.targetY);
             
+            // 3. 防重叠推挤算法
             let currentBottom = 32; // 初始偏移
             const gap = 16; // 间距
             
@@ -989,19 +992,23 @@
                 const cardHeight = card.offsetHeight || 100;
                 let newY = comment.targetY;
                 
-                // 防重叠推挤：如果目标位置在当前累积底部之上，则向下推
+                // 如果目标位置与上一个批注重叠，则向下推
                 if (newY < currentBottom) {
                     newY = currentBottom;
                 }
                 
-                // 应用位置
-                card.style.top = `${newY}px`;
-                comment.displayY = newY; // 保存实际显示位置用于连线
+                // 应用位置：使用 absolute 定位，top 值需要加上 scrollTop 以跟随滚动
+                card.style.top = `${newY + scrollTop}px`;
+                card.style.left = `${comment.targetX}px`; // X 方向不需要加 scrollLeft，因为是固定在视口右侧
+                card.style.position = 'absolute';
+                
+                comment.displayY = newY + scrollTop; // 保存实际显示位置用于连线
+                comment.displayX = comment.targetX;
                 
                 currentBottom = newY + cardHeight + gap;
             });
             
-            // 重绘所有连线
+            // 4. 重绘所有连线
             drawAllCommentLines();
         }
 
@@ -1012,6 +1019,7 @@
             if (!editorScroll) return;
             
             const scrollTop = editorScroll.scrollTop;
+            const scrollLeft = editorScroll.scrollLeft;
             const editorRect = editorScroll.getBoundingClientRect();
             
             state.comments.forEach(comment => {
@@ -1023,20 +1031,20 @@
                 const highlightRect = highlight.getBoundingClientRect();
                 const cardRect = card.getBoundingClientRect();
                 
-                // 起点：高亮文本右侧中心（相对于滚动容器内容）
-                const x1 = highlightRect.right - editorRect.left;
-                const y1 = (highlightRect.top - editorRect.top) + scrollTop + highlightRect.height / 2;
+                // 起点：高亮文本右侧中心（转换为 SVG 坐标系，即相对于 editorScroll 内容区）
+                const x1 = (highlightRect.right - editorRect.left) + scrollLeft;
+                const y1 = ((highlightRect.top - editorRect.top) + scrollTop) + highlightRect.height / 2;
                 
-                // 终点：批注卡片左侧中心（相对于滚动容器内容）
-                const x2 = cardRect.left - editorRect.left;
-                const y2 = (cardRect.top - editorRect.top) + scrollTop + cardRect.height / 2;
+                // 终点：批注卡片左侧中心（转换为 SVG 坐标系）
+                const x2 = (cardRect.left - editorRect.left) + scrollLeft;
+                const y2 = ((cardRect.top - editorRect.top) + scrollTop) + cardRect.height / 2;
                 
                 // 创建贝塞尔曲线路径
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 path.setAttribute('id', `line-${comment.id}`);
                 path.setAttribute('class', 'comment-line');
                 
-                // 使用贝塞尔曲线使连线更平滑
+                // 平滑贝塞尔曲线
                 const d = `M ${x1} ${y1} C ${x1 + 30} ${y1}, ${x2 - 30} ${y2}, ${x2} ${y2}`;
                 path.setAttribute('d', d);
                 
