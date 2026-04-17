@@ -974,7 +974,7 @@
                 
                 // 关键：计算相对于滚动容器内容的绝对坐标
                 // 视口坐标 - 容器视口坐标 + 容器滚动距离 = 容器内绝对坐标
-                comment.targetY = (highlightRect.top - editorRect.top);
+                comment.targetY = (highlightRect.top - editorRect.top) + scrollTop;
                 comment.targetX = editorRect.width - 320; // 固定在右侧（视口坐标）
             });
             
@@ -997,12 +997,12 @@
                     newY = currentBottom;
                 }
                 
-                // 应用位置：使用 absolute 定位，top 值需要加上 scrollTop 以跟随滚动
-                card.style.top = `${newY + scrollTop}px`;
+                // 应用位置：使用 absolute 定位，top 值已经是相对于容器内容区的绝对坐标
+                card.style.top = `${newY}px`;
                 card.style.left = `${comment.targetX}px`; // X 方向不需要加 scrollLeft，因为是固定在视口右侧
                 card.style.position = 'absolute';
                 
-                comment.displayY = newY + scrollTop; // 保存实际显示位置用于连线
+                comment.displayY = newY; // 保存实际显示位置用于连线
                 comment.displayX = comment.targetX;
                 
                 currentBottom = newY + cardHeight + gap;
@@ -1032,12 +1032,16 @@
                 const cardRect = card.getBoundingClientRect();
                 
                 // 起点：高亮文本右侧中心（转换为 SVG 坐标系，即相对于 editorScroll 内容区）
+                // 由于 SVG 是 absolute 覆盖在 editorScroll 上，且 width/height 设为 scrollWidth/scrollHeight
+                // 所以坐标应该是：(视口坐标 - 容器视口坐标) + 滚动距离
                 const x1 = (highlightRect.right - editorRect.left) + scrollLeft;
-                const y1 = ((highlightRect.top - editorRect.top) + scrollTop) + highlightRect.height / 2;
+                const y1 = (highlightRect.top - editorRect.top) + scrollTop + highlightRect.height / 2;
                 
-                // 终点：批注卡片左侧中心（转换为 SVG 坐标系）
-                const x2 = (cardRect.left - editorRect.left) + scrollLeft;
-                const y2 = ((cardRect.top - editorRect.top) + scrollTop) + cardRect.height / 2;
+                // 终点：批注卡片左侧中心
+                // 批注卡片的 top 已经是相对于内容区的绝对坐标 (displayY)
+                // X 坐标也是相对于视口右侧的固定值
+                const x2 = comment.displayX + scrollLeft;
+                const y2 = comment.displayY + cardRect.height / 2;
                 
                 // 创建贝塞尔曲线路径
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
