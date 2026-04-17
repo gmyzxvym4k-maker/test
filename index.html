@@ -1,30 +1,1650 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Word Editor</title>
+    <title>Word 文档与 AI 协作平台</title>
+    <!-- 依赖库引入 -->
+    <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.4/dist/pizzip.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx@7.8.2/build/index.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        // 等待 DOM 加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化全局命名空间，确保库可用
+            window.PizZip = window.PizZip || PizZip;
+            // docx 库导出为 globalThis.docx
+            window.docxLib = window.docx || {};
+            
+            console.log('库加载状态:', { 
+                PizZip: !!window.PizZip, 
+                docx: !!window.docxLib,
+                saveAs: typeof saveAs !== 'undefined',
+                docxKeys: window.docxLib ? Object.keys(window.docxLib).slice(0, 10) : null
+            });
+        });
+    </script>
     <style>
-        body { font-family: Arial, sans-serif; } 
-        .editor { border: 1px solid #ccc; padding: 10px; }
-        .comment { color: blue; cursor: pointer; }
+        :root {
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f8fafc;
+            --editor-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --text-color: #1e293b;
+            --text-muted: #64748b;
+            --comment-bg: #fef3c7;
+            --comment-border: #f59e0b;
+            --sidebar-width: 400px;
+            --toolbar-height: 56px;
+            --statusbar-height: 32px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 工具栏 */
+        .toolbar {
+            height: var(--toolbar-height);
+            background: white;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .toolbar-btn {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .toolbar-btn:hover {
+            background: var(--bg-color);
+            border-color: var(--primary-color);
+        }
+
+        .toolbar-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .toolbar-separator {
+            width: 1px;
+            height: 24px;
+            background: var(--border-color);
+            margin: 0 8px;
+        }
+
+        .toolbar-select {
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 13px;
+            background: white;
+        }
+
+        /* 主容器 */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 左侧编辑器区域 */
+        .editor-section {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .editor-scroll-container {
+            flex: 1;
+            overflow: auto;
+            padding: 32px;
+            position: relative;
+            /* 确保批注轨道和 SVG 层与此容器一起滚动 */
+            contain: layout style;
+        }
+
+        .word-page {
+            background: white;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 25.4mm;
+            margin: 0 auto;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            position: relative;
+            outline: none;
+        }
+
+        .word-page[contenteditable]:empty:before {
+            content: '在此处输入内容或导入 Word 文档...';
+            color: var(--text-muted);
+        }
+
+        /* 批注轨道 - 与 editor-scroll-container 共享滚动上下文 */
+        .comments-rail {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: var(--sidebar-width);
+            padding: 32px 16px;
+            overflow: visible;
+            pointer-events: none;
+            box-sizing: border-box;
+        }
+
+        .comment-card {
+            background: var(--comment-bg);
+            border: 1px solid var(--comment-border);
+            border-radius: 8px;
+            padding: 12px;
+            position: absolute; /* 移除 margin-bottom，使用绝对定位 */
+            width: calc(var(--sidebar-width) - 32px);
+            pointer-events: auto;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: top 0.2s ease; /* 加快过渡速度 */
+        }
+
+        .comment-card:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .comment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .comment-type {
+            background: var(--primary-color);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .comment-delete {
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 16px;
+        }
+
+        .comment-delete:hover {
+            color: #ef4444;
+        }
+
+        .comment-content {
+            font-size: 13px;
+            line-height: 1.5;
+            outline: none;
+        }
+
+        .comment-quote {
+            background: rgba(0, 0, 0, 0.05);
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-style: italic;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* SVG 连线层 */
+        .svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .comment-line {
+            stroke: var(--comment-border);
+            stroke-width: 2;
+            stroke-dasharray: 6, 4;
+            fill: none;
+        }
+
+        /* 右侧 AI 对话区域 */
+        .ai-section {
+            flex: 2;
+            max-width: var(--sidebar-width);
+            background: white;
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .ai-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .ai-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .message.user {
+            background: var(--primary-color);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.ai {
+            background: var(--bg-color);
+            color: var(--text-color);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .quick-actions {
+            padding: 12px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .quick-action-btn {
+            padding: 6px 12px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-action-btn:hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .ai-input-area {
+            padding: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .ai-input-wrapper {
+            display: flex;
+            gap: 8px;
+        }
+
+        .ai-input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            resize: none;
+            font-family: inherit;
+            outline: none;
+        }
+
+        .ai-input:focus {
+            border-color: var(--primary-color);
+        }
+
+        .ai-send-btn {
+            padding: 10px 20px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .ai-send-btn:hover {
+            background: var(--primary-hover);
+        }
+
+        .ai-send-btn:disabled {
+            background: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        /* 状态栏 */
+        .statusbar {
+            height: var(--statusbar-height);
+            background: white;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            font-size: 12px;
+            color: var(--text-muted);
+            gap: 24px;
+        }
+
+        /* 模态框 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            width: 400px;
+            max-width: 90%;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .modal-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .modal-input {
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 16px;
+        }
+
+        .modal-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .modal-btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .modal-btn-secondary {
+            background: var(--bg-color);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+
+        /* 高亮样式 */
+        .highlight-insert {
+            background-color: #dcfce7;
+            text-decoration: underline;
+        }
+
+        .highlight-delete {
+            background-color: #fee2e2;
+            text-decoration: line-through;
+        }
+
+        .highlight-comment {
+            background-color: #fef3c7;
+            border-bottom: 2px solid var(--comment-border);
+            cursor: pointer;
+        }
+
+        /* 修订模式开关 */
+        .revision-mode .highlight-insert {
+            display: inline;
+        }
+
+        .revision-mode .highlight-delete {
+            display: inline;
+        }
+
+        /* 隐藏元素 */
+        .hidden {
+            display: none !important;
+        }
     </style>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
-    <h1>AI Word Document & Collaboration Platform</h1>
-    <div class="editor" contenteditable="true">
-        <p>欢迎使用AI文档编辑器！</p>
+    <!-- 工具栏 -->
+    <div class="toolbar">
+        <button class="toolbar-btn" id="btn-bold" title="加粗 (Ctrl+B)"><strong>B</strong></button>
+        <button class="toolbar-btn" id="btn-italic" title="斜体 (Ctrl+I)"><em>I</em></button>
+        <button class="toolbar-btn" id="btn-underline" title="下划线 (Ctrl+U)"><u>U</u></button>
+        <button class="toolbar-btn" id="btn-strikethrough" title="删除线"><s>S</s></button>
+        <div class="toolbar-separator"></div>
+        <select class="toolbar-select" id="font-size">
+            <option value="12pt">12pt</option>
+            <option value="14pt">14pt</option>
+            <option value="16pt">16pt</option>
+            <option value="18pt">18pt</option>
+            <option value="24pt">24pt</option>
+        </select>
+        <input type="color" id="font-color" value="#000000" style="width: 30px; height: 30px; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">
+        <div class="toolbar-separator"></div>
+        <button class="toolbar-btn" id="btn-bullet" title="项目符号">• 列表</button>
+        <button class="toolbar-btn" id="btn-numbered" title="编号列表">1. 列表</button>
+        <div class="toolbar-separator"></div>
+        <button class="toolbar-btn" id="btn-comment" title="添加批注">💬 批注</button>
+        <button class="toolbar-btn" id="btn-revision" title="修订模式">📝 修订</button>
+        <div class="toolbar-separator"></div>
+        <button class="toolbar-btn" id="btn-import" title="导入 Word 文档">📥 导入</button>
+        <button class="toolbar-btn" id="btn-api-config" title="API 配置">⚙️ 配置</button>
+        <button class="toolbar-btn" id="btn-export-html" title="导出 HTML">📄 HTML</button>
+        <button class="toolbar-btn" id="btn-download-word" title="下载 Word">💾 Word</button>
     </div>
-    <div class="comments"></div>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 左侧编辑器 -->
+        <div class="editor-section">
+            <div class="editor-scroll-container" id="editor-scroll">
+                <div class="word-page" id="editor" contenteditable="true" spellcheck="false"></div>
+                <svg class="svg-layer" id="svg-layer"></svg>
+                <div class="comments-rail" id="comments-rail"></div>
+            </div>
+        </div>
+
+        <!-- 右侧 AI 对话 -->
+        <div class="ai-section">
+            <div class="ai-header">AI 智能助手</div>
+            <div class="ai-messages" id="ai-messages">
+                <div class="message ai">你好！我是你的 AI 写作助手。我可以帮你检查文本错误、优化表达、检查逻辑或总结要点。请选择下方的快捷指令，或直接输入你的需求。</div>
+            </div>
+            <div class="quick-actions">
+                <button class="quick-action-btn" data-action="check-errors">检查错误</button>
+                <button class="quick-action-btn" data-action="optimize">优化表达</button>
+                <button class="quick-action-btn" data-action="check-logic">检查逻辑</button>
+                <button class="quick-action-btn" data-action="format-check">格式规范</button>
+                <button class="quick-action-btn" data-action="summarize">总结要点</button>
+            </div>
+            <div class="ai-input-area">
+                <div class="ai-input-wrapper">
+                    <textarea class="ai-input" id="ai-input" rows="2" placeholder="输入你的问题或指令..."></textarea>
+                    <button class="ai-send-btn" id="ai-send">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="statusbar">
+        <span id="word-count">字数：0</span>
+        <span id="comment-count">批注：0</span>
+        <span id="api-status">API：未配置</span>
+        <span id="save-time">保存时间：--</span>
+    </div>
+
+    <!-- API 配置模态框 -->
+    <div class="modal-overlay" id="api-modal">
+        <div class="modal">
+            <div class="modal-title">API 配置</div>
+            <div class="modal-form">
+                <input type="text" class="modal-input" id="api-endpoint" placeholder="API Endpoint (如：https://api.openai.com/v1)">
+                <input type="password" class="modal-input" id="api-key" placeholder="API Key">
+                <input type="text" class="modal-input" id="api-model" placeholder="模型名称 (如：gpt-3.5-turbo)">
+                <button class="modal-btn modal-btn-secondary" id="btn-test-api">测试连接</button>
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-secondary" id="btn-cancel-api">取消</button>
+                <button class="modal-btn modal-btn-primary" id="btn-save-api">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入模态框 -->
+    <div class="modal-overlay" id="import-modal">
+        <div class="modal">
+            <div class="modal-title">导入 Word 文档</div>
+            <div style="text-align: center; padding: 32px; border: 2px dashed var(--border-color); border-radius: 8px; margin-bottom: 16px;" id="drop-zone">
+                <p style="color: var(--text-muted);">拖拽 .docx 文件到此处</p>
+                <p style="color: var(--text-muted); font-size: 12px; margin-top: 8px;">或</p>
+                <input type="file" id="file-input" accept=".docx" style="margin-top: 12px;">
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-secondary" id="btn-cancel-import">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div class="toast" id="toast"></div>
+
     <script>
-        $(document).ready(function() {
-            // Implement OOXML Word document parsing and import functionality here
-            // Implement rich text editing functionality here
-            // Implement intelligent comment system here
-            // Implement AI model integration with local fallback mode here
-            // Implement export to HTML and Word functionality here
+        // ==================== 安全存储引擎 ====================
+        const safeStorage = {
+            data: {},
+            useMemory: false,
+            
+            init() {
+                try {
+                    localStorage.setItem('__test__', 'test');
+                    localStorage.removeItem('__test__');
+                } catch (e) {
+                    this.useMemory = true;
+                    console.log('使用内存存储（沙箱环境）');
+                }
+            },
+            
+            get(key) {
+                if (this.useMemory) {
+                    return this.data[key];
+                }
+                try {
+                    return localStorage.getItem(key);
+                } catch (e) {
+                    return this.data[key];
+                }
+            },
+            
+            set(key, value) {
+                if (this.useMemory) {
+                    this.data[key] = value;
+                    return;
+                }
+                try {
+                    localStorage.setItem(key, value);
+                } catch (e) {
+                    this.data[key] = value;
+                }
+            }
+        };
+
+        safeStorage.init();
+
+        // ==================== 全局状态 ====================
+        const state = {
+            comments: [],
+            apiConfig: null,
+            revisionMode: false,
+            commentIdCounter: 0
+        };
+
+        // ==================== DOM 元素引用 ====================
+        const editor = document.getElementById('editor');
+        const editorScroll = document.getElementById('editor-scroll');
+        const commentsRail = document.getElementById('comments-rail');
+        const svgLayer = document.getElementById('svg-layer');
+        const aiMessages = document.getElementById('ai-messages');
+        const aiInput = document.getElementById('ai-input');
+        const aiSendBtn = document.getElementById('ai-send');
+        const toastEl = document.getElementById('toast');
+        const wordCountEl = document.getElementById('word-count');
+        const commentCountEl = document.getElementById('comment-count');
+        const apiStatusEl = document.getElementById('api-status');
+        const saveTimeEl = document.getElementById('save-time');
+
+        // ==================== 工具函数 ====================
+        function showToast(message, type = 'info') {
+            toastEl.textContent = message;
+            toastEl.className = `toast show ${type}`;
+            setTimeout(() => {
+                toastEl.className = 'toast';
+            }, 3000);
+        }
+
+        function updateStatusBar() {
+            const text = editor.innerText || '';
+            wordCountEl.textContent = `字数：${text.length}`;
+            commentCountEl.textContent = `批注：${state.comments.length}`;
+            
+            const now = new Date();
+            saveTimeEl.textContent = `保存时间：${now.toLocaleTimeString()}`;
+            
+            if (state.apiConfig) {
+                apiStatusEl.textContent = `API：已配置 (${state.apiConfig.model})`;
+            } else {
+                apiStatusEl.textContent = 'API：未配置';
+            }
+        }
+
+        function generateId() {
+            return 'comment_' + (++state.commentIdCounter) + '_' + Date.now();
+        }
+
+        // ==================== OOXML 解析引擎 ====================
+        async function parseDocxToHtml(arrayBuffer) {
+            try {
+                // 确保 PizZip 可用
+                const ZipLib = window.PizZip || PizZip;
+                if (!ZipLib) {
+                    throw new Error('PizZip 库未加载，请检查网络连接');
+                }
+                
+                const zip = new ZipLib(arrayBuffer);
+                const docXml = zip.file("word/document.xml")?.asText();
+                const stylesXml = zip.file("word/styles.xml")?.asText();
+                
+                if (!docXml) {
+                    throw new Error('无法找到 document.xml，文件可能已损坏');
+                }
+
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(docXml, 'application/xml');
+                
+                // 检查解析错误
+                const parseError = doc.querySelector('parsererror');
+                if (parseError) {
+                    console.warn('XML 解析警告:', parseError.textContent);
+                }
+                
+                let html = '';
+                const body = doc.querySelector('w\\:body, w-body, body');
+                
+                if (body) {
+                    html = parseBody(body);
+                }
+                
+                editor.innerHTML = html;
+                updateStatusBar();
+                showToast('文档导入成功', 'success');
+            } catch (error) {
+                console.error('解析失败:', error);
+                showToast('文档解析失败：' + error.message, 'error');
+            }
+        }
+
+        function parseBody(body) {
+            let html = '';
+            const children = body.children;
+            
+            for (let child of children) {
+                // 处理带命名空间和不带命名空间的标签
+                const tagName = child.tagName.replace(/^w:/, '').replace(/:/g, '-');
+                
+                if (tagName === 'p' || tagName === 'w-p') {
+                    html += parseParagraph(child);
+                } else if (tagName === 'tbl' || tagName === 'w-tbl') {
+                    html += parseTable(child);
+                }
+            }
+            
+            return html;
+        }
+
+        function parseParagraph(p) {
+            // 使用更通用的选择器
+            const pPr = p.querySelector('w\\:pPr, w-pPr, pPr');
+            const pStyle = pPr?.querySelector('w\\:pStyle, w-pStyle, pStyle')?.getAttribute('w\\:val') || 
+                          pPr?.querySelector('w\\:pStyle, w-pStyle, pStyle')?.getAttribute('val');
+            
+            let content = '';
+            const runs = p.querySelectorAll('w\\:r, w-r, r');
+            
+            for (let run of runs) {
+                content += parseRun(run);
+            }
+            
+            // 映射段落样式
+            if (pStyle) {
+                if (pStyle.includes('Heading1') || pStyle.includes('Title')) {
+                    return `<h1>${content}</h1>`;
+                } else if (pStyle.includes('Heading2')) {
+                    return `<h2>${content}</h2>`;
+                } else if (pStyle.includes('Heading3')) {
+                    return `<h3>${content}</h3>`;
+                }
+            }
+            
+            return `<p>${content}</p>`;
+        }
+
+        function parseRun(run) {
+            const rPr = run.querySelector('w\\:rPr, w-rPr, rPr');
+            const textEl = run.querySelector('w\\:t, w-t, t');
+            const text = textEl?.textContent || '';
+            
+            if (!text) return '';
+            
+            let style = '';
+            let classes = [];
+            
+            // 解析运行属性
+            if (rPr) {
+                // 加粗
+                if (rPr.querySelector('w\\:b, w-b, b') || rPr.querySelector('w\\:bCs, w-bCs, bCs')) {
+                    style += 'font-weight: bold;';
+                }
+                
+                // 斜体
+                if (rPr.querySelector('w\\:i, w-i, i') || rPr.querySelector('w\\:iCs, w-iCs, iCs')) {
+                    style += 'font-style: italic;';
+                }
+                
+                // 下划线
+                if (rPr.querySelector('w\\:u, w-u, u')) {
+                    style += 'text-decoration: underline;';
+                }
+                
+                // 删除线
+                if (rPr.querySelector('w\\:strike, w-strike, strike') || rPr.querySelector('w\\:dstrike, w-dstrike, dstrike')) {
+                    style += 'text-decoration: line-through;';
+                }
+                
+                // 字体颜色
+                const colorEl = rPr.querySelector('w\\:color, w-color, color');
+                const color = colorEl?.getAttribute('w\\:val') || colorEl?.getAttribute('val');
+                if (color) {
+                    style += `color: #${color};`;
+                }
+                
+                // 字号
+                const szEl = rPr.querySelector('w\\:sz, w-sz, sz');
+                const sz = szEl?.getAttribute('w\\:val') || szEl?.getAttribute('val');
+                if (sz) {
+                    const pt = parseInt(sz) / 2;
+                    style += `font-size: ${pt}pt;`;
+                }
+                
+                // 高亮
+                const highlightEl = rPr.querySelector('w\\:highlight, w-highlight, highlight');
+                const highlight = highlightEl?.getAttribute('w\\:val') || highlightEl?.getAttribute('val');
+                if (highlight && highlight !== 'none') {
+                    classes.push('highlight-' + highlight);
+                }
+                
+                // 上标/下标
+                const vertAlignEl = rPr.querySelector('w\\:vertAlign, w-vertAlign, vertAlign');
+                const vertAlign = vertAlignEl?.getAttribute('w\\:val') || vertAlignEl?.getAttribute('val');
+                if (vertAlign === 'superscript') {
+                    style += 'vertical-align: super; font-size: smaller;';
+                } else if (vertAlign === 'subscript') {
+                    style += 'vertical-align: sub; font-size: smaller;';
+                }
+                
+                // 修订标记
+                if (run.querySelector('w\\:ins, w-ins, ins')) {
+                    classes.push('highlight-insert');
+                }
+                if (run.querySelector('w\\:del, w-del, del')) {
+                    classes.push('highlight-delete');
+                }
+            }
+            
+            const classAttr = classes.length > 0 ? ` class="${classes.join(' ')}"` : '';
+            const styleAttr = style ? ` style="${style}"` : '';
+            
+            return `<span${classAttr}${styleAttr}>${text}</span>`;
+        }
+
+        function parseTable(tbl) {
+            let html = '<table style="border-collapse: collapse; width: 100%;">';
+            const rows = tbl.querySelectorAll('w\\:tr, w-tr, tr');
+            
+            for (let row of rows) {
+                html += '<tr>';
+                const cells = row.querySelectorAll('w\\:tc, w-tc, tc');
+                
+                for (let cell of cells) {
+                    const ps = cell.querySelectorAll('w\\:p, w-p, p');
+                    let cellContent = '';
+                    
+                    for (let p of ps) {
+                        cellContent += parseParagraph(p);
+                    }
+                    
+                    html += `<td style="border: 1px solid #000; padding: 8px;">${cellContent}</td>`;
+                }
+                
+                html += '</tr>';
+            }
+            
+            html += '</table>';
+            return html;
+        }
+
+        // ==================== 批注系统 ====================
+        function createComment(range, quote, type = 'manual') {
+            const id = generateId();
+            const comment = {
+                id,
+                quote,
+                content: '',
+                type,
+                range: null,
+                targetY: 0
+            };
+            
+            state.comments.push(comment);
+            
+            // 创建高亮
+            const span = document.createElement('span');
+            span.className = 'highlight-comment';
+            span.dataset.commentId = id;
+            span.textContent = quote;
+            
+            try {
+                range.deleteContents();
+                range.insertNode(span);
+            } catch (e) {
+                console.error('创建高亮失败:', e);
+            }
+            
+            // 创建批注卡片
+            renderCommentCard(comment);
+            updateAllComments();
+            updateStatusBar();
+            saveState();
+            
+            return comment;
+        }
+
+        function renderCommentCard(comment) {
+            const card = document.createElement('div');
+            card.className = 'comment-card';
+            card.id = `card-${comment.id}`;
+            card.innerHTML = `
+                <div class="comment-header">
+                    <span class="comment-type">${getTypeLabel(comment.type)}</span>
+                    <span class="comment-delete" onclick="deleteComment('${comment.id}')">&times;</span>
+                </div>
+                <div class="comment-quote">"${comment.quote}"</div>
+                <div class="comment-content" contenteditable="true" onblur="updateCommentContent('${comment.id}', this.textContent)">${comment.content || '点击编辑...'}</div>
+            `;
+            
+            commentsRail.appendChild(card);
+        }
+
+        function getTypeLabel(type) {
+            const labels = {
+                'manual': '手动批注',
+                'error': '错误',
+                'suggestion': '建议',
+                'logic': '逻辑',
+                'format': '格式',
+                'summary': '总结'
+            };
+            return labels[type] || type;
+        }
+
+        function updateCommentContent(id, content) {
+            const comment = state.comments.find(c => c.id === id);
+            if (comment) {
+                comment.content = content.trim();
+                saveState();
+            }
+        }
+
+        function deleteComment(id) {
+            const index = state.comments.findIndex(c => c.id === id);
+            if (index > -1) {
+                state.comments.splice(index, 1);
+                
+                // 移除高亮
+                const highlight = document.querySelector(`[data-comment-id="${id}"]`);
+                if (highlight) {
+                    const parent = highlight.parentNode;
+                    while (highlight.firstChild) {
+                        parent.insertBefore(highlight.firstChild, highlight);
+                    }
+                    parent.removeChild(highlight);
+                }
+                
+                // 移除卡片
+                const card = document.getElementById(`card-${id}`);
+                if (card) {
+                    card.remove();
+                }
+                
+                updateAllComments();
+                updateStatusBar();
+                saveState();
+            }
+        }
+
+        function updateAllComments() {
+            if (!editorScroll || !commentsRail) return;
+            
+            const scrollTop = editorScroll.scrollTop;
+            const scrollLeft = editorScroll.scrollLeft;
+            const editorRect = editorScroll.getBoundingClientRect();
+            
+            // 1. 先计算所有批注的目标位置（相对于滚动容器内容的绝对位置）
+            state.comments.forEach(comment => {
+                const highlight = document.querySelector(`[data-comment-id="${comment.id}"]`);
+                const card = document.getElementById(`card-${comment.id}`);
+                
+                if (!highlight || !card) return;
+                
+                const highlightRect = highlight.getBoundingClientRect();
+                
+                // 关键：计算相对于滚动容器内容的绝对坐标
+                // 视口坐标 - 容器视口坐标 + 容器滚动距离 = 容器内绝对坐标
+                comment.targetY = (highlightRect.top - editorRect.top) + scrollTop;
+                comment.targetX = editorRect.width - 320; // 固定在右侧（视口坐标）
+            });
+            
+            // 2. 按目标 Y 坐标排序（创建副本以免改变原数组顺序）
+            const sortedComments = [...state.comments].sort((a, b) => a.targetY - b.targetY);
+            
+            // 3. 防重叠推挤算法
+            let currentBottom = 32; // 初始偏移
+            const gap = 16; // 间距
+            
+            sortedComments.forEach(comment => {
+                const card = document.getElementById(`card-${comment.id}`);
+                if (!card) return;
+                
+                const cardHeight = card.offsetHeight || 100;
+                let newY = comment.targetY;
+                
+                // 如果目标位置与上一个批注重叠，则向下推
+                if (newY < currentBottom) {
+                    newY = currentBottom;
+                }
+                
+                // 应用位置：使用 absolute 定位，top 值已经是相对于容器内容区的绝对坐标
+                card.style.top = `${newY}px`;
+                card.style.left = `${comment.targetX}px`; // X 方向不需要加 scrollLeft，因为是固定在视口右侧
+                card.style.position = 'absolute';
+                
+                comment.displayY = newY; // 保存实际显示位置用于连线
+                comment.displayX = comment.targetX;
+                
+                currentBottom = newY + cardHeight + gap;
+            });
+            
+            // 4. 重绘所有连线
+            drawAllCommentLines();
+        }
+
+        function drawAllCommentLines() {
+            // 清空旧线
+            svgLayer.innerHTML = '';
+            
+            if (!editorScroll) return;
+            
+            const scrollTop = editorScroll.scrollTop;
+            const scrollLeft = editorScroll.scrollLeft;
+            const editorRect = editorScroll.getBoundingClientRect();
+            
+            state.comments.forEach(comment => {
+                const highlight = document.querySelector(`[data-comment-id="${comment.id}"]`);
+                const card = document.getElementById(`card-${comment.id}`);
+                
+                if (!highlight || !card || card.style.display === 'none') return;
+                
+                const highlightRect = highlight.getBoundingClientRect();
+                const cardRect = card.getBoundingClientRect();
+                
+                // 起点：高亮文本右侧中心（转换为 SVG 坐标系，即相对于 editorScroll 内容区）
+                // 由于 SVG 是 absolute 覆盖在 editorScroll 上，且 width/height 设为 scrollWidth/scrollHeight
+                // 所以坐标应该是：(视口坐标 - 容器视口坐标) + 滚动距离
+                const x1 = (highlightRect.right - editorRect.left) + scrollLeft;
+                const y1 = (highlightRect.top - editorRect.top) + scrollTop + highlightRect.height / 2;
+                
+                // 终点：批注卡片左侧中心
+                // 批注卡片的 top 已经是相对于内容区的绝对坐标 (displayY)
+                // X 坐标也是相对于视口右侧的固定值
+                const x2 = comment.displayX + scrollLeft;
+                const y2 = comment.displayY + cardRect.height / 2;
+                
+                // 创建贝塞尔曲线路径
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('id', `line-${comment.id}`);
+                path.setAttribute('class', 'comment-line');
+                
+                // 平滑贝塞尔曲线
+                const d = `M ${x1} ${y1} C ${x1 + 30} ${y1}, ${x2 - 30} ${y2}, ${x2} ${y2}`;
+                path.setAttribute('d', d);
+                
+                svgLayer.appendChild(path);
+            });
+        }
+
+        // ==================== AI 桥接模块 ====================
+        async function callAI(prompt) {
+            if (!state.apiConfig) {
+                return simulateAI(prompt);
+            }
+            
+            try {
+                const response = await fetch(`${state.apiConfig.endpoint}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${state.apiConfig.key}`
+                    },
+                    body: JSON.stringify({
+                        model: state.apiConfig.model,
+                        messages: [
+                            {
+                                role: 'system',
+                                content: '你是一个专业的文档编辑助手。请分析用户提供的文本，并返回严格的 JSON 格式：{"summary": "总结", "issues": [{"quote": "引用原文", "type": "error|suggestion|logic|format", "suggestion": "建议"}]}'
+                            },
+                            {
+                                role: 'user',
+                                content: prompt
+                            }
+                        ],
+                        temperature: 0.3
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API 请求失败：${response.status}`);
+                }
+                
+                const data = await response.json();
+                const content = data.choices[0]?.message?.content;
+                
+                try {
+                    return JSON.parse(content);
+                } catch (e) {
+                    return { summary: content, issues: [] };
+                }
+            } catch (error) {
+                console.error('AI 调用失败:', error);
+                showToast('AI 调用失败，使用模拟模式', 'error');
+                return simulateAI(prompt);
+            }
+        }
+
+        function simulateAI(prompt) {
+            // 模拟规则引擎
+            const text = editor.innerText || '';
+            const issues = [];
+            
+            if (prompt.includes('错误') || prompt.includes('检查')) {
+                // 简单模拟错误检测
+                const commonErrors = ['的得地', '在再', '做作'];
+                commonErrors.forEach(err => {
+                    if (text.includes(err)) {
+                        issues.push({
+                            quote: err,
+                            type: 'error',
+                            suggestion: `注意"${err}"的用法`
+                        });
+                    }
+                });
+            }
+            
+            if (prompt.includes('优化')) {
+                issues.push({
+                    quote: text.substring(0, 20) || '示例文本',
+                    type: 'suggestion',
+                    suggestion: '可以考虑使用更精确的词汇表达'
+                });
+            }
+            
+            if (prompt.includes('逻辑')) {
+                issues.push({
+                    quote: text.substring(0, 30) || '示例文本',
+                    type: 'logic',
+                    suggestion: '段落之间的逻辑连接可以更加紧密'
+                });
+            }
+            
+            return {
+                summary: '模拟分析完成',
+                issues
+            };
+        }
+
+        function addAIMessage(content, isUser = false) {
+            const msg = document.createElement('div');
+            msg.className = `message ${isUser ? 'user' : 'ai'}`;
+            msg.textContent = content;
+            aiMessages.appendChild(msg);
+            aiMessages.scrollTop = aiMessages.scrollHeight;
+        }
+
+        async function processAIRequest(prompt) {
+            addAIMessage(prompt, true);
+            aiSendBtn.disabled = true;
+            
+            try {
+                const result = await callAI(prompt);
+                
+                if (result.summary) {
+                    addAIMessage(result.summary);
+                }
+                
+                if (result.issues && result.issues.length > 0) {
+                    result.issues.forEach(issue => {
+                        // 使用 TreeWalker 查找原文
+                        const found = findTextInEditor(issue.quote);
+                        if (found) {
+                            createComment(found.range, issue.quote, issue.type);
+                        }
+                    });
+                    
+                    addAIMessage(`已添加 ${result.issues.length} 条批注`);
+                }
+            } catch (error) {
+                addAIMessage('处理失败：' + error.message);
+            } finally {
+                aiSendBtn.disabled = false;
+                aiInput.value = '';
+            }
+        }
+
+        function findTextInEditor(quote) {
+            const walker = document.createTreeWalker(
+                editor,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+            
+            let node;
+            while ((node = walker.nextNode())) {
+                const text = node.textContent;
+                const index = text.indexOf(quote);
+                
+                if (index !== -1) {
+                    const range = document.createRange();
+                    range.setStart(node, index);
+                    range.setEnd(node, index + quote.length);
+                    return { range, node };
+                }
+            }
+            
+            // 模糊匹配
+            const simplifiedQuote = quote.replace(/\s+/g, '').substring(0, 10);
+            walker.currentNode = editor;
+            
+            while ((node = walker.nextNode())) {
+                const text = node.textContent.replace(/\s+/g, '');
+                if (text.includes(simplifiedQuote)) {
+                    const startIndex = text.indexOf(simplifiedQuote);
+                    const originalIndex = findOriginalIndex(node.textContent, simplifiedQuote, startIndex);
+                    
+                    if (originalIndex !== -1) {
+                        const range = document.createRange();
+                        range.setStart(node, originalIndex);
+                        range.setEnd(node, originalIndex + quote.length);
+                        return { range, node };
+                    }
+                }
+            }
+            
+            return null;
+        }
+
+        function findOriginalIndex(text, simplified, simIndex) {
+            let origIndex = 0;
+            let simCount = 0;
+            
+            for (let i = 0; i < text.length && simCount <= simIndex; i++) {
+                if (!/\s/.test(text[i])) {
+                    if (simCount === simIndex) {
+                        return i;
+                    }
+                    simCount++;
+                }
+            }
+            
+            return -1;
+        }
+
+        // ==================== 导出模块 ====================
+        function exportHTML() {
+            const html = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>导出的文档</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; max-width: 210mm; margin: 0 auto; padding: 25.4mm; }
+        .highlight-comment { background-color: #fef3c7; border-bottom: 2px solid #f59e0b; }
+        .highlight-insert { background-color: #dcfce7; text-decoration: underline; }
+        .highlight-delete { background-color: #fee2e2; text-decoration: line-through; }
+    </style>
+</head>
+<body>
+${editor.innerHTML}
+</body>
+</html>`;
+            
+            const blob = new Blob([html], { type: 'text/html' });
+            saveAs(blob, 'document.html');
+            showToast('HTML 导出成功', 'success');
+        }
+
+        async function downloadWord() {
+            try {
+                // 确保 docx 对象可用
+                const docxLib = window.docx || window.docxLib;
+                if (!docxLib || !docxLib.Document) {
+                    console.error('docx 库对象:', docxLib);
+                    throw new Error('docx 库未正确加载，请检查网络连接或 CDN 可用性');
+                }
+                
+                const { Document, Packer, Paragraph, TextRun } = docxLib;
+                
+                const children = [];
+                const nodes = editor.childNodes;
+                
+                nodes.forEach(node => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const textRuns = extractTextRuns(node);
+                        if (textRuns.length > 0) {
+                            children.push(new Paragraph({ children: textRuns }));
+                        }
+                    }
+                });
+                
+                if (children.length === 0) {
+                    showToast('文档内容为空，无法导出', 'warning');
+                    return;
+                }
+                
+                const doc = new Document({
+                    sections: [{
+                        properties: {},
+                        children
+                    }]
+                });
+                
+                const blob = await Packer.toBlob(doc);
+                saveAs(blob, 'document.docx');
+                showToast('Word 下载成功', 'success');
+            } catch (error) {
+                console.error('导出失败:', error);
+                showToast('导出失败：' + error.message, 'error');
+            }
+        }
+
+        function extractTextRuns(element) {
+            const runs = [];
+            
+            if (element.nodeType === Node.TEXT_NODE) {
+                runs.push(new TextRun({ text: element.textContent }));
+            } else if (element.nodeType === Node.ELEMENT_NODE) {
+                const styles = {};
+                
+                if (element.style.fontWeight === 'bold') styles.bold = true;
+                if (element.style.fontStyle === 'italic') styles.italics = true;
+                if (element.style.textDecoration === 'underline') styles.underline = true;
+                if (element.style.textDecoration === 'line-through') styles.strike = true;
+                
+                Array.from(element.childNodes).forEach(child => {
+                    const childRuns = extractTextRuns(child);
+                    runs.push(...childRuns);
+                });
+                
+                if (runs.length === 0 && element.textContent) {
+                    runs.push(new TextRun({ text: element.textContent, ...styles }));
+                }
+            }
+            
+            return runs;
+        }
+
+        // ==================== 状态保存 ====================
+        function saveState() {
+            safeStorage.set('editor_content', editor.innerHTML);
+            safeStorage.set('comments_data', JSON.stringify(state.comments));
+            safeStorage.set('api_config', JSON.stringify(state.apiConfig));
+        }
+
+        function loadState() {
+            const content = safeStorage.get('editor_content');
+            if (content) {
+                editor.innerHTML = content;
+            }
+            
+            const commentsData = safeStorage.get('comments_data');
+            if (commentsData) {
+                state.comments = JSON.parse(commentsData);
+                state.comments.forEach(comment => {
+                    renderCommentCard(comment);
+                    
+                    // 重新应用高亮（简化处理，实际应精确定位）
+                    const found = findTextInEditor(comment.quote);
+                    if (found) {
+                        const span = document.createElement('span');
+                        span.className = 'highlight-comment';
+                        span.dataset.commentId = comment.id;
+                        
+                        try {
+                            found.range.deleteContents();
+                            found.range.insertNode(span);
+                            span.appendChild(document.createTextNode(comment.quote));
+                        } catch (e) {
+                            console.error('恢复高亮失败:', e);
+                        }
+                    }
+                });
+                updateAllComments();
+            }
+            
+            const apiData = safeStorage.get('api_config');
+            if (apiData) {
+                state.apiConfig = JSON.parse(apiData);
+                document.getElementById('api-endpoint').value = state.apiConfig.endpoint || '';
+                document.getElementById('api-key').value = state.apiConfig.key || '';
+                document.getElementById('api-model').value = state.apiConfig.model || '';
+            }
+            
+            updateStatusBar();
+        }
+
+        // ==================== 事件监听 ====================
+        // 工具栏按钮
+        document.getElementById('btn-bold').addEventListener('click', () => {
+            document.execCommand('bold', false, null);
+            editor.focus();
         });
+
+        document.getElementById('btn-italic').addEventListener('click', () => {
+            document.execCommand('italic', false, null);
+            editor.focus();
+        });
+
+        document.getElementById('btn-underline').addEventListener('click', () => {
+            document.execCommand('underline', false, null);
+            editor.focus();
+        });
+
+        document.getElementById('btn-strikethrough').addEventListener('click', () => {
+            document.execCommand('strikeThrough', false, null);
+            editor.focus();
+        });
+
+        document.getElementById('font-size').addEventListener('change', (e) => {
+            document.execCommand('fontSize', false, '7');
+            const spans = document.querySelectorAll('font[size="7"]');
+            spans.forEach(span => {
+                span.removeAttribute('size');
+                span.style.fontSize = e.target.value;
+            });
+            editor.focus();
+        });
+
+        document.getElementById('font-color').addEventListener('change', (e) => {
+            document.execCommand('foreColor', false, e.target.value);
+            editor.focus();
+        });
+
+        document.getElementById('btn-bullet').addEventListener('click', () => {
+            document.execCommand('insertUnorderedList', false, null);
+            editor.focus();
+        });
+
+        document.getElementById('btn-numbered').addEventListener('click', () => {
+            document.execCommand('insertOrderedList', false, null);
+            editor.focus();
+        });
+
+        document.getElementById('btn-comment').addEventListener('click', () => {
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0 && !selection.isCollapsed) {
+                const range = selection.getRangeAt(0);
+                const quote = selection.toString().trim();
+                
+                if (quote) {
+                    createComment(range, quote);
+                    selection.removeAllRanges();
+                }
+            } else {
+                showToast('请先选中要批注的文本', 'error');
+            }
+        });
+
+        document.getElementById('btn-revision').addEventListener('click', () => {
+            state.revisionMode = !state.revisionMode;
+            document.getElementById('btn-revision').classList.toggle('active', state.revisionMode);
+            editor.classList.toggle('revision-mode', state.revisionMode);
+            showToast(state.revisionMode ? '修订模式已开启' : '修订模式已关闭');
+        });
+
+        // 模态框
+        document.getElementById('btn-import').addEventListener('click', () => {
+            document.getElementById('import-modal').classList.add('active');
+        });
+
+        document.getElementById('btn-cancel-import').addEventListener('click', () => {
+            document.getElementById('import-modal').classList.remove('active');
+        });
+
+        document.getElementById('btn-api-config').addEventListener('click', () => {
+            document.getElementById('api-modal').classList.add('active');
+        });
+
+        document.getElementById('btn-cancel-api').addEventListener('click', () => {
+            document.getElementById('api-modal').classList.remove('active');
+        });
+
+        document.getElementById('btn-save-api').addEventListener('click', () => {
+            const endpoint = document.getElementById('api-endpoint').value.trim();
+            const key = document.getElementById('api-key').value.trim();
+            const model = document.getElementById('api-model').value.trim();
+            
+            if (endpoint && key && model) {
+                state.apiConfig = { endpoint, key, model };
+                saveState();
+                updateStatusBar();
+                document.getElementById('api-modal').classList.remove('active');
+                showToast('API 配置已保存', 'success');
+            } else {
+                showToast('请填写完整的 API 配置', 'error');
+            }
+        });
+
+        document.getElementById('btn-test-api').addEventListener('click', async () => {
+            const endpoint = document.getElementById('api-endpoint').value.trim();
+            const key = document.getElementById('api-key').value.trim();
+            const model = document.getElementById('api-model').value.trim();
+            
+            if (!endpoint || !key || !model) {
+                showToast('请先填写 API 配置', 'error');
+                return;
+            }
+            
+            aiSendBtn.disabled = true;
+            try {
+                const response = await fetch(`${endpoint}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${key}`
+                    },
+                    body: JSON.stringify({
+                        model,
+                        messages: [{ role: 'user', content: 'Hello' }],
+                        max_tokens: 5
+                    })
+                });
+                
+                if (response.ok) {
+                    showToast('API 连接成功', 'success');
+                } else {
+                    showToast('API 连接失败：' + response.status, 'error');
+                }
+            } catch (error) {
+                showToast('API 连接失败：' + error.message, 'error');
+            } finally {
+                aiSendBtn.disabled = false;
+            }
+        });
+
+        document.getElementById('btn-export-html').addEventListener('click', exportHTML);
+        document.getElementById('btn-download-word').addEventListener('click', downloadWord);
+
+        // 文件导入
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--primary-color)';
+            dropZone.style.background = 'var(--bg-color)';
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = 'var(--border-color)';
+            dropZone.style.background = 'transparent';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--border-color)';
+            dropZone.style.background = 'transparent';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].name.endsWith('.docx')) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    parseDocxToHtml(event.target.result);
+                    document.getElementById('import-modal').classList.remove('active');
+                };
+                reader.readAsArrayBuffer(files[0]);
+            } else {
+                showToast('请选择 .docx 文件', 'error');
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.name.endsWith('.docx')) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    parseDocxToHtml(event.target.result);
+                    document.getElementById('import-modal').classList.remove('active');
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+
+        // AI 交互
+        aiSendBtn.addEventListener('click', () => {
+            const prompt = aiInput.value.trim();
+            if (prompt) {
+                processAIRequest(prompt);
+            }
+        });
+
+        aiInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                aiSendBtn.click();
+            }
+        });
+
+        document.querySelectorAll('.quick-action-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const action = btn.dataset.action;
+                const prompts = {
+                    'check-errors': '请检查这段文本中的语法和用词错误',
+                    'optimize': '请优化这段文本的表达，使其更加流畅和专业',
+                    'check-logic': '请检查这段文本的逻辑结构，指出可能的问题',
+                    'format-check': '请检查这段文本的格式规范性',
+                    'summarize': '请总结这段文本的核心要点'
+                };
+                
+                if (prompts[action]) {
+                    processAIRequest(prompts[action]);
+                }
+            });
+        });
+
+        // 滚动联动
+        editorScroll.addEventListener('scroll', () => {
+            updateAllComments();
+        });
+
+        // 自动保存
+        let saveTimeout;
+        editor.addEventListener('input', () => {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                saveState();
+                updateStatusBar();
+            }, 1000);
+        });
+
+        // 快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                saveState();
+                showToast('已保存', 'success');
+            }
+        });
+
+        // 窗口大小变化时重排批注
+        window.addEventListener('resize', () => {
+            updateAllComments();
+        });
+
+        // 初始化
+        loadState();
+        updateStatusBar();
+
+        // ResizeObserver 优化
+        const resizeObserver = new ResizeObserver(() => {
+            updateAllComments();
+        });
+        
+        resizeObserver.observe(editor);
+        resizeObserver.observe(commentsRail);
     </script>
 </body>
 </html>

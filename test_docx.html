@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>测试 DOCX 导入导出</title>
+    <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.4/dist/pizzip.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx@7.8.2/build/index.js"></script>
+</head>
+<body>
+    <h1>DOCX 导入导出测试</h1>
+    <button onclick="testImport()">测试导入</button>
+    <button onclick="testExport()">测试导出</button>
+    <div id="result"></div>
+    
+    <script>
+        console.log('库加载状态:');
+        console.log('- PizZip:', typeof PizZip);
+        console.log('- saveAs:', typeof saveAs);
+        console.log('- docx:', typeof docx, typeof Docx);
+        
+        // 检查 docx 命名空间
+        const docxLib = window.docx || window.Docx;
+        console.log('- docxLib:', docxLib);
+        if (docxLib) {
+            console.log('- Document:', typeof docxLib.Document);
+            console.log('- Packer:', typeof docxLib.Packer);
+        }
+        
+        function testImport() {
+            document.getElementById('result').innerHTML = '请查看控制台日志';
+        }
+        
+        function testExport() {
+            try {
+                const docxLib = window.docx || window.Docx;
+                if (!docxLib) throw new Error('docx 库未找到');
+                
+                const { Document, Packer, Paragraph, TextRun } = docxLib;
+                
+                const doc = new Document({
+                    sections: [{
+                        properties: {},
+                        children: [
+                            new Paragraph({
+                                children: [
+                                    new TextRun({ text: 'Hello World!', bold: true })
+                                ]
+                            })
+                        ]
+                    }]
+                });
+                
+                Packer.toBlob(doc).then(blob => {
+                    saveAs(blob, 'test.docx');
+                    document.getElementById('result').innerHTML = '导出成功!';
+                });
+            } catch (e) {
+                document.getElementById('result').innerHTML = '导出失败：' + e.message;
+            }
+        }
+    </script>
+</body>
+</html>
