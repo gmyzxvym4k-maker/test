@@ -1,30 +1,60 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Word Editor</title>
-    <style>
-        body { font-family: Arial, sans-serif; } 
-        .editor { border: 1px solid #ccc; padding: 10px; }
-        .comment { color: blue; cursor: pointer; }
-    </style>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <title>Word & OpenClaw 智能文档协作平台</title>
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx@7.8.2/build/index.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 </head>
-<body>
-    <h1>AI Word Document & Collaboration Platform</h1>
-    <div class="editor" contenteditable="true">
-        <p>欢迎使用AI文档编辑器！</p>
+<body style="margin:0;font-family:sans-serif;height:100vh;display:flex;flex-direction:column">
+    <div style="background:#fff;padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="document.getElementById('fileInput').click()">📁 打开 Word</button>
+        <input type="file" id="fileInput" accept=".docx" style="display:none" onchange="handleFileUpload(event)">
+        <button onclick="exportToHTML()">📄 导出 HTML</button>
+        <button onclick="exportToDocx()">💾 下载 Word</button>
+        <button onclick="execCommand('bold')"><b>B</b></button>
+        <button onclick="execCommand('italic')"><i>I</i></button>
+        <button onclick="execCommand('underline')"><u>U</u></button>
+        <button onclick="openApiModal()">⚙️ API 设置</button>
     </div>
-    <div class="comments"></div>
+    <div style="display:flex;flex:1;overflow:hidden">
+        <div style="flex:1;overflow:auto;padding:20px;background:#f3f2f1">
+            <div id="editor" contenteditable="true" style="background:#fff;width:210mm;min-height:297mm;padding:25mm;margin:0 auto;box-shadow:0 4px 16px rgba(0,0,0,0.1);font-size:12pt;line-height:1.6">
+                <p>欢迎使用 <b>Word & OpenClaw 智能文档协作平台</b>！</p>
+                <p>功能：上传 Word、富文本编辑、AI 智能校对、批注管理、导出文档</p>
+            </div>
+        </div>
+        <div id="annotationTrack" style="width:300px;background:#faf9f8;border-left:1px solid #ddd;overflow-y:auto;padding:16px;position:relative"></div>
+        <div style="width:350px;background:#1f1f1f;display:flex;flex-direction:column">
+            <div style="background:#2d2d2d;padding:12px;color:#fff;font-weight:bold">🤖 OpenClaw AI 助手 <span id="apiStatus" style="font-size:11px;padding:2px 8px;border-radius:10px;background:#f44336;margin-left:8px">未连接</span></div>
+            <div id="chatMessages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px"></div>
+            <div style="padding:12px;background:#2d2d2d;border-top:1px solid #444">
+                <input type="text" id="chatInput" placeholder="输入指令..." onkeypress="if(event.key==='Enter')sendMessage()" style="width:100%;padding:10px;border:none;border-radius:20px;background:#333;color:#fff;outline:none">
+            </div>
+        </div>
+    </div>
+    <div id="apiModal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;justify-content:center;align-items:center;z-index:1000">
+        <div style="background:#fff;border-radius:12px;width:400px;padding:20px">
+            <h3 style="margin:0 0 16px;color:#2b579a">⚙️ API 配置</h3>
+            <input type="text" id="apiUrl" placeholder="API 地址" style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #ddd;border-radius:6px">
+            <input type="password" id="apiKey" placeholder="API Key" style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #ddd;border-radius:6px">
+            <input type="text" id="modelName" placeholder="模型名称 (gpt-3.5-turbo)" style="width:100%;padding:10px;margin-bottom:16px;border:1px solid #ddd;border-radius:6px">
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button onclick="document.getElementById('apiModal').style.display='none'">取消</button>
+                <button onclick="saveApiConfig()" style="background:#2b579a;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer">保存</button>
+            </div>
+        </div>
+    </div>
     <script>
-        $(document).ready(function() {
-            // Implement OOXML Word document parsing and import functionality here
-            // Implement rich text editing functionality here
-            // Implement intelligent comment system here
-            // Implement AI model integration with local fallback mode here
-            // Implement export to HTML and Word functionality here
-        });
+const state={annotations:[],apiConfig:{url:'',key:'',model:''},isConnected:false};
+function execCommand(cmd){document.execCommand(cmd,false,null)}
+function exportToHTML(){const e=document.getElementById('editor');const b=new Blob(['<!DOCTYPE html><html><body>'+e.innerHTML+'</body></html>'],{type:'text/html'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='doc.html';a.click()}
+function exportToDocx(){try{const{Document,Packer,Paragraph,TextRun}=docx;const doc=new Document({sections:[{children:[new Paragraph({children:[new TextRun(document.getElementById('editor').innerText)])}]}]});Packer.toBlob(doc).then(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='doc.docx';a.click()})}catch(e){alert('导出失败')}}
+function openApiModal(){document.getElementById('apiModal').style.display='flex'}
+async function testConnection(){try{const r=await fetch(state.apiConfig.url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.apiConfig.key},body:JSON.stringify({model:state.apiConfig.model,messages:[{role:'user',content:'Hi'}],max_tokens:5})});if(r.ok){state.isConnected=true;document.getElementById('apiStatus').textContent='已连接';document.getElementById('apiStatus').style.background='#4caf50';document.getElementById('apiModal').style.display='none';alert('连接成功')}else{alert('连接失败')}}catch(e){alert('错误:'+e.message)}}
+function addMsg(c,t){const cn=document.getElementById('chatMessages');const m=document.createElement('div');m.style.cssText='padding:10px 14px;border-radius:12px;font-size:13px;max-width:85%'+(t==='user'?';background:#2b579a;color:#fff;align-self:flex-end':t==='ai'?';background:#333;color:#eee;align-self:flex-start':';background:#444;color:#aaa;align-self:center;text-align:center');m.textContent=c;cn.appendChild(m);cn.scrollTop=cn.scrollHeight}
+const sc=localStorage.getItem('apiConfig');if(sc){state.apiConfig=JSON.parse(sc)}
     </script>
 </body>
 </html>
